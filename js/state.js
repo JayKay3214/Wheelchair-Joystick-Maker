@@ -48,8 +48,18 @@ export class Store {
     this.profilePoints = this.model.buildOuterProfile(this.params).map((p) => ({ ...p }));
   }
 
+  // Keep edge rounding within the active model's dynamic ceiling (e.g. top radius).
+  _clampDynamic() {
+    const m = this.model;
+    if (m.edgeRoundMax && this.params.edgeRound != null) {
+      const mx = Math.max(0.25, m.edgeRoundMax(this.params));
+      if (this.params.edgeRound > mx) this.params.edgeRound = mx;
+    }
+  }
+
   setParam(key, value) {
     this.params[key] = value;
+    this._clampDynamic();
     this.rebuildProfile();
     this._emit("param");
   }
@@ -65,6 +75,7 @@ export class Store {
   /** Reset every slider for the active model back to its defaults. */
   resetParams() {
     this.params = defaultParams(this.model);
+    this._clampDynamic();
     this.rebuildProfile();
     this._emit("param");
   }

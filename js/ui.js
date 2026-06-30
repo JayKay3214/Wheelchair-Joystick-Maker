@@ -91,7 +91,7 @@ export class UI {
     const input = document.createElement("input");
     input.type = "range";
     input.min = schema.min;
-    input.max = schema.max;
+    input.max = this._dynamicMax(schema);
     input.step = schema.step;
     input.value = this.store.params[schema.key];
     input.setAttribute("aria-label", schema.label);
@@ -115,9 +115,19 @@ export class UI {
     return wrap;
   }
 
+  // Edge rounding gets a dynamic ceiling scaled to the shape (e.g. its top radius).
+  _dynamicMax(schema) {
+    if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
+      return Math.max(0.25, this.store.model.edgeRoundMax(this.store.params));
+    }
+    return schema.max;
+  }
+
   // Refresh slider positions + readouts from the store (after model/param/unit change).
   _syncSliderValues() {
     for (const [key, { input, value, schema }] of this.sliderEls) {
+      const max = this._dynamicMax(schema);
+      if (parseFloat(input.max) !== max) input.max = max;
       const v = this.store.params[key];
       if (parseFloat(input.value) !== v) input.value = v;
       value.textContent = formatValue(schema, v, this.store.unit);

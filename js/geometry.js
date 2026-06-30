@@ -24,37 +24,87 @@ function dedupe(points) {
   return out;
 }
 
+/** General Bezier (de Casteljau) sampled into N+1 points. */
+function bezier(ctrl, N) {
+  const out = [];
+  for (let st = 0; st <= N; st++) {
+    const t = st / N;
+    const tmp = ctrl.map((p) => ({ x: p.x, y: p.y }));
+    for (let k = tmp.length - 1; k > 0; k--) {
+      for (let j = 0; j < k; j++) {
+        tmp[j].x += (tmp[j + 1].x - tmp[j].x) * t;
+        tmp[j].y += (tmp[j + 1].y - tmp[j].y) * t;
+      }
+    }
+    out.push({ x: tmp[0].x, y: tmp[0].y });
+  }
+  return out;
+}
+
 /**
- * Round the sharp corners of the outer silhouette with tangent fillets.
- * Endpoints (top-on-axis and the point on the bed) are preserved. The bore is
- * added later, so it is never affected.
+ * Round sharp corners of the outer silhouette with arc-length-based fillets.
+ *
+ * Unlike a naive per-corner chamfer, the fillet size is measured along the curve's
+ * arc length, so a dense polyline (the Chin Cup bowl) no longer chokes the radius.
+ * Runs of nearby corners (e.g. the I-Handle's stem/head shoulder) are clustered and
+ * blended into a single smooth transition. Endpoints (top-on-axis and the point on
+ * the bed) are preserved, and the bore is added later, so it is never affected.
  */
 function roundCorners(points, r) {
   if (r <= 0.01 || points.length < 3) return points;
-  const out = [points[0]];
-  for (let i = 1; i < points.length - 1; i++) {
-    const p0 = points[i - 1], p1 = points[i], p2 = points[i + 1];
-    const v1x = p0.x - p1.x, v1y = p0.y - p1.y;
-    const v2x = p2.x - p1.x, v2y = p2.y - p1.y;
+  const n = points.length;
+  const s = [0];
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+
+  const sharp = new Array(n).fill(false);
+  for (let i = 1; i < n - 1; i++) {
+    const a = points[i - 1], b = points[i], c = points[i + 1];
+    const v1x = a.x - b.x, v1y = a.y - b.y, v2x = c.x - b.x, v2y = c.y - b.y;
     const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
-    if (l1 < 1e-3 || l2 < 1e-3) { out.push(p1); continue; }
-    const dot = (v1x * v2x + v1y * v2y) / (l1 * l2);
-    const ang = Math.acos(Math.max(-1, Math.min(1, dot)));
-    if (ang > Math.PI * 0.96) { out.push(p1); continue; } // already ~straight
-    const d = Math.min(r, l1 * 0.5, l2 * 0.5);
-    const t1 = { x: p1.x + (v1x / l1) * d, y: p1.y + (v1y / l1) * d };
-    const t2 = { x: p1.x + (v2x / l2) * d, y: p1.y + (v2y / l2) * d };
-    out.push(t1);
-    for (let k = 1; k < 4; k++) {
-      const t = k / 4, mt = 1 - t;
-      out.push({
-        x: mt * mt * t1.x + 2 * mt * t * p1.x + t * t * t2.x,
-        y: mt * mt * t1.y + 2 * mt * t * p1.y + t * t * t2.y,
-      });
-    }
-    out.push(t2);
+    if (l1 < 1e-6 || l2 < 1e-6) continue;
+    const ang = Math.acos(Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (l1 * l2))));
+    if (ang < Math.PI - 0.3) sharp[i] = true; // turn sharper than ~17 deg
   }
-  out.push(points[points.length - 1]);
+
+  // Cluster adjacent sharp corners sitting within r of each other.
+  const clusters = [];
+  for (let i = 1; i < n - 1; i++) {
+    if (!sharp[i]) continue;
+    let j = i;
+    while (j + 1 < n - 1 && sharp[j + 1] && s[j + 1] - s[j] < r) j++;
+    clusters.push([i, j]);
+    i = j;
+  }
+  if (!clusters.length) return points;
+
+  const at = (q) => {
+    if (q <= 0) return { x: points[0].x, y: points[0].y };
+    if (q >= s[n - 1]) return { x: points[n - 1].x, y: points[n - 1].y };
+    let k = 1;
+    while (k < n && s[k] < q) k++;
+    const t = (q - s[k - 1]) / ((s[k] - s[k - 1]) || 1);
+    return { x: points[k - 1].x + (points[k].x - points[k - 1].x) * t, y: points[k - 1].y + (points[k].y - points[k - 1].y) * t };
+  };
+
+  const out = [];
+  let cursor = 0;
+  for (let ci = 0; ci < clusters.length; ci++) {
+    const [i0, i1] = clusters[ci];
+    const prevLimit = ci > 0 ? s[clusters[ci - 1][1]] : 0;
+    const nextLimit = ci < clusters.length - 1 ? s[clusters[ci + 1][0]] : s[n - 1];
+    // Half the gap to a neighbouring corner (so fillets never overlap); the full gap
+    // toward an endpoint (lets a big radius dome the top / blend the shoulder to base).
+    const dBack = Math.min(r, (s[i0] - prevLimit) * (ci > 0 ? 0.5 : 1));
+    const dFwd = Math.min(r, (nextLimit - s[i1]) * (ci < clusters.length - 1 ? 0.5 : 1));
+    const sT1 = s[i0] - dBack, sT2 = s[i1] + dFwd;
+    while (cursor < n && s[cursor] < sT1 - 1e-9) { out.push(points[cursor]); cursor++; }
+    const ctrl = [at(sT1)];
+    for (let k = i0; k <= i1; k++) ctrl.push(points[k]);
+    ctrl.push(at(sT2));
+    for (const p of bezier(ctrl, 6 + (i1 - i0) * 4)) out.push(p);
+    while (cursor < n && s[cursor] <= sT2 + 1e-9) cursor++;
+  }
+  while (cursor < n) { out.push(points[cursor]); cursor++; }
   return out;
 }
 

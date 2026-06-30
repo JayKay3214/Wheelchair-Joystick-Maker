@@ -19,8 +19,10 @@
 // ---- shared slider definitions -------------------------------------------------
 
 // Global edge-rounding (fillets sharp outer edges; never touches the bore).
+// `max` here is only a fallback; roundable models with an `edgeRoundMax(params)`
+// function get a dynamic max scaled to the shape (e.g. the top radius).
 const COMMON_SHAPE = [
-  { key: "edgeRound", label: "Edge rounding", min: 0, max: 6, step: 0.25, group: "shape", unit: "mm", def: 1 },
+  { key: "edgeRound", label: "Edge rounding", min: 0, max: 25, step: 0.25, group: "shape", unit: "mm", def: 1 },
 ];
 
 // Common stem + bore controls appended to every model.
@@ -149,6 +151,7 @@ const MODELS = [
     // sharp rim/lip; with Catmull smoothing the rim would always be auto-rounded.
     smoothProfile: false,
     roundable: true,
+    edgeRoundMax: (p) => Math.min(p.height, p.rimDia / 2),
     schema: [
       { key: "rimDia", label: "Rim diameter", min: 26, max: 64, step: 0.5, group: "shape", unit: "mm", def: 40 },
       { key: "height", label: "Height", min: 10, max: 30, step: 0.5, group: "shape", unit: "mm", def: 18 },
@@ -184,10 +187,11 @@ const MODELS = [
 
   {
     id: "carrot",
-    label: "Remote+ (Carrot)",
+    label: "Carrot",
     icon: ICON.carrot,
     smoothProfile: false,
     roundable: true,
+    edgeRoundMax: (p) => p.topDia / 2,
     schema: [
       { key: "topDia", label: "Top diameter", min: 16, max: 50, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "bottomDia", label: "Bottom diameter", min: 10, max: 40, step: 0.5, group: "shape", unit: "mm", def: 18 },
@@ -216,6 +220,7 @@ const MODELS = [
     icon: ICON.ihandle,
     smoothProfile: false,
     roundable: true,
+    edgeRoundMax: (p) => p.topDia / 2,
     tiltKey: "tilt",
     schema: [
       { key: "topDia", label: "Top diameter", min: 10, max: 34, step: 0.5, group: "shape", unit: "mm", def: 16 },
