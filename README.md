@@ -11,16 +11,20 @@ outline, so every export is a **watertight, manifold solid** with no boolean/CSG
 
 ## Handle styles
 
-Based on the 8 common powerchair handles, this version ships the six that are revolution-based:
+Based on the 8 common powerchair handles, this version ships the five that are revolution-based:
 
 | Style | Notes |
 |-------|-------|
-| **Soft Ball** | Large rounded ball. |
-| **Ball** | Smaller ball/knob. |
+| **Ball** | Rounded ball/knob with adjustable diameter and squash. |
 | **Mushroom** | Domed cap wider than the stem, with an adjustable undercut. |
-| **Chin Cup** | Flared, slightly dished top for chin control. |
-| **Remote+ (Carrot)** | Tapered truncated cone with a rounded top edge. |
-| **I-Handle** | Tapered grip with an adjustable lean (the stem stays vertical for mounting). |
+| **Chin Cup** | Flared cup with a concave (inward) bowl top for chin control. |
+| **Remote+ (Carrot)** | Tapered truncated cone. |
+| **I-Handle** | Tapered grip with an optional lean (the stem and bore stay vertical for mounting). |
+
+**Edge rounding:** styles with sharp edges (Chin Cup, Carrot, I-Handle) expose an *Edge rounding*
+slider that fillets the outer edges — the bowl lip, the frustum edges, or the I-Handle's top and
+stem/head shoulder. It never affects the mounting bore. Smooth styles (Ball, Mushroom) hide the
+slider since they have no sharp edges.
 
 > **Coming later:** **T-Bar** and **Goal Posts** are non-symmetric and need swept geometry, plus extra
 > bore types (D-shape / hex / set-screw). The model registry (`js/models.js`) and bore generator are

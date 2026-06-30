@@ -20,7 +20,7 @@ export class Store {
     this.unit = "mm";
     this.gridVisible = true;
     this._subs = [];
-    this.setModel("softball", true);
+    this.setModel("ball", true);
   }
 
   subscribe(fn) {

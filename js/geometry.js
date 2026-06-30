@@ -113,12 +113,17 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
 
   const geometry = new THREE.LatheGeometry(section, segments, 0, Math.PI * 2);
 
-  // I-Handle lean: shear above the stem; stem + lower bore stay vertical for mounting.
+  // I-Handle lean: shear the OUTER head above the stem. The mounting bore (the last
+  // section points) and the stem are left vertical so the part still slides onto the
+  // controller stem. LatheGeometry vertex index -> section point is (index % sectionLen).
   if (model.tiltKey && params[model.tiltKey] > 0) {
     const baseY = params.stemHeight;
     const k = Math.tan((params[model.tiltKey] * Math.PI) / 180);
+    const sectionLen = section.length;
+    const outerLen = outer.length;
     const pos = geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) {
+      if (i % sectionLen >= outerLen) continue; // bore vertex -> keep vertical
       const y = pos.getY(i);
       if (y > baseY) pos.setX(i, pos.getX(i) + k * (y - baseY));
     }

@@ -74,8 +74,7 @@ function quad(p0, p1, p2, N) {
 // ---- icons ---------------------------------------------------------------------
 
 const ICON = {
-  softball: `<svg viewBox="0 0 40 40"><circle class="stroke fill" cx="20" cy="16" r="11" stroke-width="2"/><rect class="stroke fill" x="16" y="26" width="8" height="9" rx="1.5" stroke-width="2"/></svg>`,
-  ball: `<svg viewBox="0 0 40 40"><circle class="stroke fill" cx="20" cy="15" r="9.5" stroke-width="2"/><rect class="stroke fill" x="16.5" y="23" width="7" height="11" rx="1.5" stroke-width="2"/></svg>`,
+  ball: `<svg viewBox="0 0 40 40"><circle class="stroke fill" cx="20" cy="15" r="10.5" stroke-width="2"/><rect class="stroke fill" x="16.5" y="24" width="7" height="11" rx="1.5" stroke-width="2"/></svg>`,
   mushroom: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M7 17 C7 8 33 8 33 17 C33 21 26 22 20 22 C14 22 7 21 7 17 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   chincup: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 16 C6 22 34 22 34 16 C34 13 28 11 20 11 C12 11 6 13 6 16 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   carrot: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M11 9 L29 9 L24 30 L16 30 Z" stroke-width="2"/></svg>`,
@@ -86,29 +85,12 @@ const ICON = {
 
 const MODELS = [
   {
-    id: "softball",
-    label: "Soft Ball",
-    icon: ICON.softball,
-    smoothProfile: true,
-    schema: [
-      { key: "dia", label: "Ball diameter", min: 20, max: 65, step: 0.5, group: "shape", unit: "mm", def: 40 },
-      { key: "squash", label: "Squash", min: 0.8, max: 1.15, step: 0.01, group: "shape", unit: "x", def: 0.97 },
-    ],
-    defaults: { stemDia: 16, stemHeight: 8, boreDepth: 18 },
-    buildOuterProfile(p) {
-      const R = p.dia / 2;
-      const head = ballHead(R, R * p.squash, p.stemDia / 2, p.stemHeight, 28);
-      return [...head, ...stemTail(p.stemDia / 2, p.stemHeight)];
-    },
-  },
-
-  {
     id: "ball",
     label: "Ball",
     icon: ICON.ball,
     smoothProfile: true,
     schema: [
-      { key: "dia", label: "Ball diameter", min: 16, max: 55, step: 0.5, group: "shape", unit: "mm", def: 26 },
+      { key: "dia", label: "Ball diameter", min: 16, max: 60, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "squash", label: "Squash", min: 0.8, max: 1.2, step: 0.01, group: "shape", unit: "x", def: 1.0 },
     ],
     defaults: { stemDia: 13, stemHeight: 11, boreDepth: 16 },
@@ -163,13 +145,16 @@ const MODELS = [
     id: "chincup",
     label: "Chin Cup",
     icon: ICON.chincup,
-    smoothProfile: true,
+    // Polyline (densely sampled) so the global "Edge rounding" slider can fillet the
+    // sharp rim/lip; with Catmull smoothing the rim would always be auto-rounded.
+    smoothProfile: false,
+    roundable: true,
     schema: [
       { key: "rimDia", label: "Rim diameter", min: 26, max: 64, step: 0.5, group: "shape", unit: "mm", def: 40 },
       { key: "height", label: "Height", min: 10, max: 30, step: 0.5, group: "shape", unit: "mm", def: 18 },
       { key: "dish", label: "Top dish", min: 0, max: 8, step: 0.25, group: "shape", unit: "mm", def: 3 },
     ],
-    defaults: { stemDia: 14, stemHeight: 9, boreDepth: 15 },
+    defaults: { stemDia: 14, stemHeight: 9, boreDepth: 15, edgeRound: 2 },
     buildOuterProfile(p) {
       const rimR = p.rimDia / 2;
       const stemR = p.stemDia / 2;
@@ -179,13 +164,14 @@ const MODELS = [
       // Concave bowl: the centre sits `dish` BELOW the rim and curves up & outward
       // (parabolic), so the top is a true inward bowl rather than a dome.
       const top = [];
-      const N = 16;
+      const N = 18;
       for (let i = 0; i <= N; i++) {
         const r = (i / N) * rimR;
         const t = r / rimR;
         top.push({ x: r, y: topY - p.dish * (1 - t * t), lockX: i === 0 });
       }
-      // Flared side: rim rounds over and tapers down to the stem.
+      // Flared side: tapers from the rim down to the stem. The rim corner between the
+      // bowl and this side is what "Edge rounding" smooths into a lip.
       const side = quad(
         { x: rimR, y: topY },
         { x: rimR * 0.92, y: baseY + (topY - baseY) * 0.4 },
@@ -201,6 +187,7 @@ const MODELS = [
     label: "Remote+ (Carrot)",
     icon: ICON.carrot,
     smoothProfile: false,
+    roundable: true,
     schema: [
       { key: "topDia", label: "Top diameter", min: 16, max: 50, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "bottomDia", label: "Bottom diameter", min: 10, max: 40, step: 0.5, group: "shape", unit: "mm", def: 18 },
@@ -228,28 +215,30 @@ const MODELS = [
     label: "I-Handle",
     icon: ICON.ihandle,
     smoothProfile: false,
+    roundable: true,
     tiltKey: "tilt",
     schema: [
       { key: "topDia", label: "Top diameter", min: 10, max: 34, step: 0.5, group: "shape", unit: "mm", def: 16 },
       { key: "bottomDia", label: "Bottom diameter", min: 12, max: 40, step: 0.5, group: "shape", unit: "mm", def: 22 },
       { key: "length", label: "Grip length", min: 30, max: 90, step: 0.5, group: "shape", unit: "mm", def: 58 },
-      { key: "tilt", label: "Tilt", min: 0, max: 30, step: 1, group: "shape", unit: "deg", def: 14 },
+      { key: "tilt", label: "Tilt", min: 0, max: 30, step: 1, group: "shape", unit: "deg", def: 0 },
     ],
-    defaults: { stemDia: 16, stemHeight: 6, boreDepth: 20 },
+    // Edge rounding defaults to 6 mm so the grip top and the stem/head shoulder are
+    // softly rounded out of the box (like the Carrot). The tilt never moves the bore.
+    defaults: { stemDia: 16, stemHeight: 6, boreDepth: 20, edgeRound: 6 },
     buildOuterProfile(p) {
       const topR = p.topDia / 2;
       const botR = Math.max(p.bottomDia / 2, p.stemDia / 2);
       const stemR = p.stemDia / 2;
       const baseY = p.stemHeight;
       const topY = baseY + p.length;
-      const r = Math.min(topR * 0.9, 6);
-
-      const pts = [{ x: 0, y: topY, lockX: true }];
-      // rounded dome top of the grip
-      pts.push(...quad({ x: 0, y: topY }, { x: topR, y: topY }, { x: topR, y: topY - r }, 8).slice(1));
-      pts.push({ x: botR, y: baseY });
-      pts.push(...stemTail(stemR, baseY));
-      return pts;
+      // Sharp tapered grip; "Edge rounding" softens the flat top edge and the shoulder.
+      return [
+        { x: 0, y: topY, lockX: true },
+        { x: topR, y: topY },
+        { x: botR, y: baseY },
+        ...stemTail(stemR, baseY),
+      ];
     },
   },
 ];
@@ -262,9 +251,11 @@ export function defaultParams(model) {
   return out;
 }
 
-// Full ordered schema = model shape params + edge rounding + stem + bore.
+// Full ordered schema = model shape params + (edge rounding, if the shape has sharp
+// edges) + stem + bore. Smooth shapes (Ball, Mushroom) hide the edge-rounding slider.
 export function fullSchema(model) {
-  return [...model.schema, ...COMMON_SHAPE, ...STEM_PARAMS, ...BORE_PARAMS];
+  const rounding = model.roundable ? COMMON_SHAPE : [];
+  return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS];
 }
 
 export function getModel(id) {
