@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Joystick Maker — Wheelchair Joystick Customizer</title>
+  <meta name="description" content="Design and 3D-print custom wheelchair joystick handles. Adjust the shape with sliders, preview live in 3D, and export STL/OBJ." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='12' r='8' fill='%234f9cff'/%3E%3Crect x='12' y='18' width='8' height='11' rx='2' fill='%234f9cff'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Buildless: Three.js + addons loaded as ES modules from CDN via importmap.
+       Works identically on `python3 -m http.server` and Vercel static hosting. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js",
+      "three/addons/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/controls/OrbitControls.js",
+      "three/addons/exporters/OBJExporter.js": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/exporters/OBJExporter.js",
+      "three/addons/exporters/STLExporter.js": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/exporters/STLExporter.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar with controls -->
+    <aside id="sidebar" aria-label="Joystick controls">
+      <header class="sidebar-header">
+        <h1>Joystick Maker</h1>
+        <p class="tagline">Custom wheelchair joystick handles, ready to print.</p>
+      </header>
+
+      <!-- Model picker -->
+      <section class="panel">
+        <h2 class="panel-title">Handle Style</h2>
+        <div id="model-picker" class="model-grid" role="radiogroup" aria-label="Handle style"></div>
+      </section>
+
+      <!-- Dynamic slider sections injected by ui.js -->
+      <section class="panel">
+        <div class="panel-title-row">
+          <h2 class="panel-title">Shape</h2>
+          <div class="unit-toggle" role="radiogroup" aria-label="Display units">
+            <button type="button" data-unit="mm" class="unit-btn is-active">mm</button>
+            <button type="button" data-unit="in" class="unit-btn">in</button>
+          </div>
+        </div>
+        <div id="shape-controls"></div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Mounting Hole</h2>
+        <div id="mount-controls"></div>
+        <p class="hint">Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4&quot;) stem. Print a test fit before committing.</p>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Profile</h2>
+        <p class="hint">Drag the points to fine-tune the outline. The shape is revolved around the centre axis.</p>
+        <div id="profile-editor-wrap">
+          <canvas id="profile-canvas" width="280" height="320" aria-label="2D profile editor"></canvas>
+        </div>
+        <button type="button" id="reset-profile" class="btn btn-ghost">Reset shape</button>
+      </section>
+
+      <section class="panel export-panel">
+        <h2 class="panel-title">Export</h2>
+        <div class="export-buttons">
+          <button type="button" id="export-stl" class="btn btn-primary">Download STL</button>
+          <button type="button" id="export-obj" class="btn btn-secondary">Download OBJ</button>
+        </div>
+        <p class="hint" id="size-readout">&nbsp;</p>
+      </section>
+
+      <footer class="sidebar-footer">
+        <span>Built with Three.js · units in millimetres</span>
+      </footer>
+    </aside>
+
+    <!-- 3D viewport -->
+    <main id="viewport">
+      <canvas id="scene-canvas"></canvas>
+      <div id="viewport-overlay">
+        <button type="button" id="toggle-grid" class="chip" title="Toggle grid">Grid</button>
+        <button type="button" id="reset-view" class="chip" title="Reset camera">Reset view</button>
+      </div>
+      <div id="loading" class="loading">Loading 3D engine…</div>
+    </main>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
