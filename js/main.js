@@ -2,8 +2,9 @@ import { SceneManager } from "./scene.js";
 import { Store } from "./state.js";
 import { UI } from "./ui.js";
 import { ProfileEditor } from "./profileEditor.js";
-import { buildKnobMesh, meshDimensions } from "./geometry.js";
-import { exportSTL, exportOBJ } from "./exporter.js";
+import * as THREE from "three";
+import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
+import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
 
 const store = new Store();
 const scene = new SceneManager(document.getElementById("scene-canvas"));
@@ -40,6 +41,17 @@ gridBtn.addEventListener("click", () => {
 document.getElementById("reset-view").addEventListener("click", () => scene.resetView());
 document.getElementById("reset-profile").addEventListener("click", () => store.resetProfile());
 
+// Solid / Inside (see-through) view toggle.
+const viewBtn = document.getElementById("toggle-view");
+let solidView = true;
+viewBtn.addEventListener("click", () => {
+  solidView = !solidView;
+  material.side = solidView ? THREE.FrontSide : THREE.BackSide;
+  material.needsUpdate = true;
+  viewBtn.textContent = solidView ? "View: Solid" : "View: Inside";
+  viewBtn.classList.toggle("is-active", solidView);
+});
+
 // ---- export -------------------------------------------------------------------
 function fileName() {
   return `joystick-${store.modelId}`;
@@ -49,6 +61,23 @@ document.getElementById("export-stl").addEventListener("click", () => {
 });
 document.getElementById("export-obj").addEventListener("click", () => {
   if (scene.mesh) exportOBJ(scene.mesh.geometry, fileName());
+});
+document.getElementById("export-step").addEventListener("click", (e) => {
+  const btn = e.currentTarget;
+  const label = btn.textContent;
+  btn.textContent = "Building…";
+  btn.disabled = true;
+  // Coarser facets keep the STEP file manageable; defer so the label repaints.
+  requestAnimationFrame(() => {
+    try {
+      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS });
+      exportSTEP(geo, fileName());
+      geo.dispose();
+    } finally {
+      btn.textContent = label;
+      btn.disabled = false;
+    }
+  });
 });
 
 // keep renderer sized once layout settles

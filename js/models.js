@@ -18,6 +18,11 @@
 
 // ---- shared slider definitions -------------------------------------------------
 
+// Global edge-rounding (fillets sharp outer edges; never touches the bore).
+const COMMON_SHAPE = [
+  { key: "edgeRound", label: "Edge rounding", min: 0, max: 6, step: 0.25, group: "shape", unit: "mm", def: 1 },
+];
+
 // Common stem + bore controls appended to every model.
 const STEM_PARAMS = [
   { key: "stemDia", label: "Stem diameter", min: 8, max: 26, step: 0.5, group: "shape", unit: "mm", def: 14 },
@@ -169,21 +174,21 @@ const MODELS = [
       const rimR = p.rimDia / 2;
       const stemR = p.stemDia / 2;
       const baseY = p.stemHeight;
-      const topY = baseY + p.height;
-      const yRim = topY - p.dish * 0.4;
+      const topY = baseY + p.height; // rim height (highest point)
 
-      // Dished top: centre sits `dish` below the rim, curving up & out to the rim.
-      const top = quad(
-        { x: 0, y: topY - p.dish },
-        { x: rimR * 0.55, y: topY - p.dish * 0.2 },
-        { x: rimR, y: yRim },
-        14
-      );
-      top[0].lockX = true;
+      // Concave bowl: the centre sits `dish` BELOW the rim and curves up & outward
+      // (parabolic), so the top is a true inward bowl rather than a dome.
+      const top = [];
+      const N = 16;
+      for (let i = 0; i <= N; i++) {
+        const r = (i / N) * rimR;
+        const t = r / rimR;
+        top.push({ x: r, y: topY - p.dish * (1 - t * t), lockX: i === 0 });
+      }
       // Flared side: rim rounds over and tapers down to the stem.
       const side = quad(
-        { x: rimR, y: yRim },
-        { x: rimR * 0.92, y: baseY + (yRim - baseY) * 0.4 },
+        { x: rimR, y: topY },
+        { x: rimR * 0.92, y: baseY + (topY - baseY) * 0.4 },
         { x: stemR, y: baseY },
         14
       );
@@ -200,28 +205,21 @@ const MODELS = [
       { key: "topDia", label: "Top diameter", min: 16, max: 50, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "bottomDia", label: "Bottom diameter", min: 10, max: 40, step: 0.5, group: "shape", unit: "mm", def: 18 },
       { key: "height", label: "Height", min: 16, max: 55, step: 0.5, group: "shape", unit: "mm", def: 32 },
-      { key: "edgeFillet", label: "Top edge round", min: 0, max: 8, step: 0.25, group: "shape", unit: "mm", def: 3 },
     ],
-    defaults: { stemDia: 14, stemHeight: 6, boreDepth: 18 },
+    defaults: { stemDia: 14, stemHeight: 6, boreDepth: 18, edgeRound: 3 },
     buildOuterProfile(p) {
       const topR = p.topDia / 2;
       const botR = Math.max(p.bottomDia / 2, p.stemDia / 2);
       const stemR = p.stemDia / 2;
       const baseY = p.stemHeight;
       const topY = baseY + p.height;
-      const f = Math.min(p.edgeFillet, topR * 0.8, p.height * 0.4);
-
-      const pts = [{ x: 0, y: topY, lockX: true }];
-      if (f > 0.05) {
-        pts.push({ x: topR - f, y: topY });
-        // small rounded corner
-        pts.push(...quad({ x: topR - f, y: topY }, { x: topR, y: topY }, { x: topR, y: topY - f }, 5).slice(1));
-      } else {
-        pts.push({ x: topR, y: topY });
-      }
-      pts.push({ x: botR, y: baseY });
-      pts.push(...stemTail(stemR, baseY));
-      return pts;
+      // Sharp frustum; the global "Edge rounding" slider softens the top/bottom edges.
+      return [
+        { x: 0, y: topY, lockX: true },
+        { x: topR, y: topY },
+        { x: botR, y: baseY },
+        ...stemTail(stemR, baseY),
+      ];
     },
   },
 
@@ -264,9 +262,9 @@ export function defaultParams(model) {
   return out;
 }
 
-// Full ordered schema = model shape params + common stem + bore.
+// Full ordered schema = model shape params + edge rounding + stem + bore.
 export function fullSchema(model) {
-  return [...model.schema, ...STEM_PARAMS, ...BORE_PARAMS];
+  return [...model.schema, ...COMMON_SHAPE, ...STEM_PARAMS, ...BORE_PARAMS];
 }
 
 export function getModel(id) {

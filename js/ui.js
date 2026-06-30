@@ -25,6 +25,9 @@ export class UI {
     this._buildControls();
     this._wireUnitToggle();
 
+    const resetBtn = document.getElementById("reset-values");
+    if (resetBtn) resetBtn.addEventListener("click", () => store.resetParams());
+
     store.subscribe((reason) => {
       if (reason === "model") {
         this._syncModelPicker();
@@ -99,6 +102,12 @@ export class UI {
       this.store.setParam(schema.key, v);
     };
     input.addEventListener("input", onInput);
+    // Double-click resets just this slider to its default.
+    input.addEventListener("dblclick", () => {
+      this.store.resetParam(schema.key);
+      input.value = this.store.params[schema.key];
+      valEl.textContent = formatValue(schema, parseFloat(input.value), this.store.unit);
+    });
 
     valEl.textContent = formatValue(schema, parseFloat(input.value), this.store.unit);
     wrap.append(head, input);

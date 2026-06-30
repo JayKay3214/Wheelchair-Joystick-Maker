@@ -1,4 +1,4 @@
-import { getModel, defaultParams } from "./models.js";
+import { getModel, defaultParams, fullSchema } from "./models.js";
 
 /**
  * Single source of truth for the app.
@@ -50,6 +50,21 @@ export class Store {
 
   setParam(key, value) {
     this.params[key] = value;
+    this.rebuildProfile();
+    this._emit("param");
+  }
+
+  /** Reset one slider to its default value. */
+  resetParam(key) {
+    const schema = fullSchema(this.model).find((s) => s.key === key);
+    const def = (this.model.defaults && this.model.defaults[key] != null) ? this.model.defaults[key] : schema && schema.def;
+    if (def == null) return;
+    this.setParam(key, def);
+  }
+
+  /** Reset every slider for the active model back to its defaults. */
+  resetParams() {
+    this.params = defaultParams(this.model);
     this.rebuildProfile();
     this._emit("param");
   }
