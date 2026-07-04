@@ -73,24 +73,49 @@ function quad(p0, p1, p2, N) {
   return out;
 }
 
-// ---- goal-post geometry recipe (rebuild, step 1) -------------------------------
-// Being rebuilt incrementally. For now the goal-post is just:
-//   * a centred bored stem;
-//   * a rectangular base box whose TOP is a smooth dome — it curves up in both
-//     directions to a peak at the centre and drops to the box-top height along the four
-//     edges. The bottom and the four sides stay a plain rectangular prism; only the top
-//     surface is raised by the hump (hump = 0 -> perfectly flat top).
-// (Side walls / palm contour will be added in later steps.)
-// Shared by the 3D builder (geometry.js) and the 2D front-view preview.
+// ---- goal-post geometry recipe -------------------------------------------------
+// The whole head (base + side walls) is ONE watertight solid: a heightfield whose top
+// surface simply RISES to wall height in the wall regions. The walls are the base's own
+// outer edges raised straight up (their outer face is literally the base's side, extended
+// upward) — no separate wall blocks, so there are no overlapping/coincident faces and
+// therefore no z-fighting. Geometry.js builds it via gpTopHeight; the 2D editor reuses it.
+//
+//   * base: a rectangular slab (flat bottom, four straight sides), top domed by `hump`;
+//   * walls: at the left/right edges (a band `wallThk` wide, inward from each side),
+//     spanning only the middle `wallLength` of the depth, rising `wallHeight` above the
+//     floor, with a rounded inside corner (`wallCorner`).
 
-const GP_BASE_THK = 10; // rectangular base thickness (box height when the top is flat)
+const GP_BASE_THK = 10; // base slab thickness (floor height above the stem top)
+const GP_WALL_THK = 8;  // side-wall thickness (mm band, inward from each base edge)
 
-// Top-surface height of the base at (x,z): the flat box top (B0 + baseThk) plus a dome
-// that is 0 along the rectangle edges and `hump` mm at the centre.
+// Smooth 0->1 ramp between edge0 and edge1 (used for the rounded inside corners).
+function smoothstep(edge0, edge1, x) {
+  if (edge1 <= edge0) return x >= edge1 ? 1 : 0;
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+// Top-surface height of the head at (x,z). The domed floor everywhere, raised to the flat
+// wall top inside the wall band. The wall's inner face is VERTICAL with a concave fillet
+// (radius `wallFillet`, the corner slider) only at its base where it meets the floor; the
+// front/back wall ends use a small FIXED transition so the slider affects nothing else.
 export function gpTopHeight(P, x, z) {
   const u = x / P.halfW, w = z / P.halfD;
   const dome = Math.max(0, 1 - u * u) * Math.max(0, 1 - w * w);
-  return P.B0 + P.baseThk + P.hump * dome;
+  const floorTop = P.B0 + P.baseThk + P.hump * dome;
+  if (P.wallHeight <= 0.01 || P.wallLen <= 0.01) return floorTop;
+  const ax = Math.abs(x), az = Math.abs(z);
+  // Depth: wall over the middle `wallLen`, with fixed near-sharp ends (NOT the corner slider).
+  const fEnd = Math.min(1.5, P.wallLen / 2 - 0.5);
+  const gz = 1 - smoothstep(P.wallLen / 2 - fEnd, P.wallLen / 2, az);
+  if (gz <= 0) return floorTop;
+  // Width: flat wall band -> vertical inner face at X0 -> concave fillet into the floor.
+  const X0 = P.halfW - P.wallThk, r = P.wallFillet;
+  let wallProfile; // height above the floor, 0 .. wallHeight
+  if (ax >= X0) wallProfile = P.wallHeight;
+  else if (r > 0.01 && ax >= X0 - r) { const d = ax - (X0 - r); wallProfile = r - Math.sqrt(Math.max(0, r * r - d * d)); }
+  else wallProfile = 0;
+  return floorTop + wallProfile * gz;
 }
 
 export function goalPostShape(p) {
@@ -100,15 +125,21 @@ export function goalPostShape(p) {
     B0: p.stemHeight,            // base underside sits on the stem top
     baseThk: GP_BASE_THK,
     hump: p.hump,
+    wallHeight: p.wallHeight,
+    wallThk: GP_WALL_THK,
     stemR: Math.max(p.stemDia / 2, 2),
     stemTopY: p.stemHeight + 4,  // pokes up into the base so the two solids fuse
   };
+  P.wallLen = Math.min(p.wallLength, p.baseLength); // never exceeds the base length
+  // Inside-corner fillet radius (0 = sharp), clamped so the vertical inner face keeps some
+  // height and the fillet stays on the floor side of the wall band.
+  P.wallFillet = Math.max(0, Math.min(p.wallCorner, p.wallHeight - 0.5, P.halfW - P.wallThk - 1));
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
   P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
 
-  // Front-view (X-Y) silhouette for the 2D editor: domed top across x, then down the
-  // sides to the flat bottom.
-  const NS = 48, top = [];
+  // Front-view (X-Y) silhouette for the 2D editor: the top profile at mid-depth (z=0, i.e.
+  // through the walls) then down the sides to the flat bottom.
+  const NS = 90, top = [];
   for (let i = 0; i <= NS; i++) { const x = -P.halfW + (2 * P.halfW * i) / NS; top.push({ x, y: gpTopHeight(P, x, 0) }); }
   P.front = { parts: [[...top, { x: P.halfW, y: P.B0 }, { x: -P.halfW, y: P.B0 }]] };
   return P;
@@ -350,9 +381,13 @@ const MODELS = [
     geometryKind: "goalpost",
     shape2D: goalPostShape,
     schema: [
-      { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 60 },
-      { key: "baseLength", label: "Base length", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 80 },
+      { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 70 },
+      { key: "baseLength", label: "Base length", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
       { key: "hump", label: "Top hump", min: 0, max: 25, step: 0.5, group: "shape", unit: "mm", def: 6 },
+      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 30 },
+      { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 5 },
+      // Front-to-back length of the walls, capped to the base length via maxFn.
+      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, maxFn: (p) => p.baseLength },
     ],
     defaults: { stemDia: 14, stemHeight: 20, boreDepth: 22 },
     // Placeholder profile so the store stays valid; the custom builder ignores it.

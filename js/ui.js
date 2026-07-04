@@ -190,8 +190,10 @@ export class UI {
     unit.textContent = unitSuffix(schema, this.store.unit);
   }
 
-  // Edge rounding gets a dynamic ceiling scaled to the shape (e.g. its top radius).
+  // Some sliders have a dynamic ceiling that depends on other params (e.g. edge rounding
+  // scaled to the top radius, or wall length capped to the base length).
   _dynamicMax(schema) {
+    if (schema.maxFn) return Math.max(schema.min, schema.maxFn(this.store.params));
     if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
       return Math.max(0.25, this.store.model.edgeRoundMax(this.store.params));
     }

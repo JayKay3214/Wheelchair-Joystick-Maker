@@ -158,28 +158,19 @@ function mergeGeoms(list) {
   return out;
 }
 
-/** Reorder each triangle of an indexed geometry so its normal points away from an
- * interior point C — robustly outward-orients a star-shaped solid (the base pad). */
-function orientOutward(g, cx, cy, cz) {
-  const p = g.attributes.position, id = g.index.array;
-  for (let t = 0; t < id.length; t += 3) {
-    const a = id[t], b = id[t + 1], c = id[t + 2];
-    const ax = p.getX(a), ay = p.getY(a), az = p.getZ(a);
-    const ux = p.getX(b) - ax, uy = p.getY(b) - ay, uz = p.getZ(b) - az;
-    const wx = p.getX(c) - ax, wy = p.getY(c) - ay, wz = p.getZ(c) - az;
-    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
-    const gx = (ax + p.getX(b) + p.getX(c)) / 3 - cx;
-    const gy = (ay + p.getY(b) + p.getY(c)) / 3 - cy;
-    const gz = (az + p.getZ(b) + p.getZ(c)) / 3 - cz;
-    if (nx * gx + ny * gy + nz * gz < 0) { id[t + 1] = c; id[t + 2] = b; }
-  }
-  g.index.needsUpdate = true;
-}
-
-/** The contoured palm-rest base pad as a smooth heightfield solid (top grid + flat
- * bottom + rim). Star-shaped about its mid-plane, so orientOutward gives clean normals. */
-function buildBasePad(P) {
-  const nx = 56, nz = 48, halfW = P.halfW, halfD = P.halfD;
+/**
+ * The whole goal-post head (base slab + raised side walls) as ONE watertight heightfield
+ * solid: a top grid (height from gpTopHeight, which already includes the raised walls), a
+ * flat bottom grid, and a rim joining them. The walls are just the taller parts of the top
+ * surface, so there are no separate/overlapping solids and nothing to z-fight.
+ *
+ * Winding is correct by construction: the top grid is wound +Y (up) and the bottom -Y
+ * (down); the four rim strips are oriented per-quad to face away from the vertical axis.
+ */
+function buildHead(P) {
+  const halfW = P.halfW, halfD = P.halfD;
+  const nx = Math.max(50, Math.min(120, Math.round(halfW * 2 * 1.3)));
+  const nz = Math.max(50, Math.min(120, Math.round(halfD * 2 * 1.3)));
   const pos = [];
   for (let i = 0; i <= nx; i++) { const x = -halfW + (2 * halfW * i) / nx;
     for (let j = 0; j <= nz; j++) { const z = -halfD + (2 * halfD * j) / nz; pos.push(x, gpTopHeight(P, x, z), z); } }
@@ -189,35 +180,41 @@ function buildBasePad(P) {
   const id = (i, j) => i * (nz + 1) + j, bid = (i, j) => topV + i * (nz + 1) + j;
   const idx = [];
   for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-    idx.push(id(i, j), id(i + 1, j + 1), id(i + 1, j), id(i, j), id(i, j + 1), id(i + 1, j + 1));          // top
-    idx.push(bid(i, j), bid(i + 1, j), bid(i + 1, j + 1), bid(i, j), bid(i + 1, j + 1), bid(i, j + 1));    // bottom
+    idx.push(id(i, j), id(i + 1, j + 1), id(i + 1, j), id(i, j), id(i, j + 1), id(i + 1, j + 1));       // top (+Y)
+    idx.push(bid(i, j), bid(i + 1, j), bid(i + 1, j + 1), bid(i, j), bid(i + 1, j + 1), bid(i, j + 1)); // bottom (-Y)
   }
-  const wall = (t0, t1, b0, b1) => idx.push(t0, b0, b1, t0, b1, t1);
-  for (let i = 0; i < nx; i++) { wall(id(i, 0), id(i + 1, 0), bid(i, 0), bid(i + 1, 0)); wall(id(i, nz), id(i + 1, nz), bid(i, nz), bid(i + 1, nz)); }
-  for (let j = 0; j < nz; j++) { wall(id(0, j), id(0, j + 1), bid(0, j), bid(0, j + 1)); wall(id(nx, j), id(nx, j + 1), bid(nx, j), bid(nx, j + 1)); }
+  // Rim strips: orient each quad's two triangles to face away from the Y axis.
+  const at = (a) => [pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]];
+  const addRim = (t0, t1, b0, b1) => {
+    const A = at(t0), C = at(b0), D = at(b1);
+    const ux = C[0] - A[0], uy = C[1] - A[1], uz = C[2] - A[2];
+    const wx = D[0] - A[0], wy = D[1] - A[1], wz = D[2] - A[2];
+    const nx2 = uy * wz - uz * wy, nz2 = ux * wy - uy * wx; // horizontal normal of tri (t0,b0,b1)
+    const cx = (A[0] + at(t1)[0] + C[0] + D[0]) / 4, cz = (A[2] + at(t1)[2] + C[2] + D[2]) / 4;
+    if (nx2 * cx + nz2 * cz >= 0) idx.push(t0, b0, b1, t0, b1, t1);
+    else idx.push(t0, b1, b0, t0, t1, b1);
+  };
+  for (let i = 0; i < nx; i++) { addRim(id(i, 0), id(i + 1, 0), bid(i, 0), bid(i + 1, 0)); addRim(id(i, nz), id(i + 1, nz), bid(i, nz), bid(i + 1, nz)); }
+  for (let j = 0; j < nz; j++) { addRim(id(0, j), id(0, j + 1), bid(0, j), bid(0, j + 1)); addRim(id(nx, j), id(nx, j + 1), bid(nx, j), bid(nx, j + 1)); }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
-  orientOutward(g, 0, P.B0 + P.baseThk * 0.4, 0);
   g.computeVertexNormals();
   return g;
 }
 
 /**
- * Goal-post (rebuild step 1): a rectangular base box with a smooth domed top, fused with
- * a centred bored stem. The parts overlap and are merged; each is individually watertight
- * so slicers union them cleanly. (Side walls come in a later step.)
+ * Goal-post: the head (base + raised side walls, one watertight solid) fused with a bored
+ * central stem. Only the stem is a separate part; it overlaps the base bottom internally.
  */
 function buildGoalPost(params, opts = {}) {
   const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 72);
   const P = goalPostShape(params);
-
-  const base = buildBasePad(P);
+  const head = buildHead(P);
   const stem = buildStem(P, segments);
-
-  const geometry = mergeGeoms([base, stem]);
+  const geometry = mergeGeoms([head, stem]);
   geometry.computeBoundingBox();
-  base.dispose();
+  head.dispose();
   stem.dispose();
   return geometry;
 }

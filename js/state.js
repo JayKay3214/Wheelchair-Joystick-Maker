@@ -48,12 +48,19 @@ export class Store {
     this.profilePoints = this.model.buildOuterProfile(this.params).map((p) => ({ ...p }));
   }
 
-  // Keep edge rounding within the active model's dynamic ceiling (e.g. top radius).
+  // Keep params within any dynamic ceilings (edge rounding vs top radius, wall length
+  // vs base length, ...).
   _clampDynamic() {
     const m = this.model;
     if (m.edgeRoundMax && this.params.edgeRound != null) {
       const mx = Math.max(0.25, m.edgeRoundMax(this.params));
       if (this.params.edgeRound > mx) this.params.edgeRound = mx;
+    }
+    for (const s of fullSchema(m)) {
+      if (s.maxFn && this.params[s.key] != null) {
+        const mx = s.maxFn(this.params);
+        if (this.params[s.key] > mx) this.params[s.key] = mx;
+      }
     }
   }
 
