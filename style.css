@@ -152,10 +152,43 @@ html, body {
   color: var(--text);
 }
 .control-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
   font-size: 12px;
   font-weight: 600;
   color: var(--accent-hover);
   font-variant-numeric: tabular-nums;
+}
+.control-num {
+  width: 4.5ch;
+  padding: 1px 4px;
+  text-align: right;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s, background 0.15s;
+  -moz-appearance: textfield;
+}
+.control-num::-webkit-outer-spin-button,
+.control-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.control-num:hover { border-color: var(--border); }
+.control-num:focus {
+  border-color: var(--accent);
+  background: #0b1522;
+}
+.control-unit {
+  font-size: 11px;
+  color: var(--text-faint);
 }
 input[type="range"] {
   -webkit-appearance: none;

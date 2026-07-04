@@ -62,6 +62,7 @@ export class ProfileEditor {
   }
 
   _onDown(e) {
+    if (this.store.model.custom) return; // custom shapes are slider-driven, not draggable
     const f = this._fit();
     const { px, py } = this._pointerPos(e);
     let best = -1, bestD = HIT_R;
@@ -104,7 +105,51 @@ export class ProfileEditor {
     }
   }
 
+  // Static front-view preview for custom (non-revolution) shapes like the Goal Posts.
+  _drawCustom() {
+    const ctx = this.ctx;
+    const S = this.store.model.shape2D(this.store.params);
+    const parts = S.front.parts;
+    let minX = Infinity, maxX = -Infinity, maxY = 1;
+    for (const arr of parts) for (const q of arr) { minX = Math.min(minX, q.x); maxX = Math.max(maxX, q.x); maxY = Math.max(maxY, q.y); }
+    minX = Math.min(minX, -S.stemR); maxX = Math.max(maxX, S.stemR);
+    const scale = Math.min((W - 2 * PAD) / Math.max(maxX - minX, 1), (H - 2 * PAD) / maxY);
+    const cx = W / 2, baseY = H - PAD;
+    const toPx = (q) => ({ px: cx + q.x * scale, py: baseY - q.y * scale });
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = "#2a323c"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8, baseY); ctx.lineTo(W - 8, baseY); ctx.stroke();
+
+    ctx.fillStyle = "rgba(79,156,255,0.10)";
+    ctx.strokeStyle = "#4f9cff";
+    ctx.lineWidth = 2;
+    // stem first (base overlaps it)
+    const sr = S.stemR * scale, st = baseY - S.stemTopY * scale;
+    ctx.beginPath(); ctx.rect(cx - sr, st, 2 * sr, baseY - st); ctx.fill(); ctx.stroke();
+    // base pad + the two arms
+    for (const arr of parts) {
+      ctx.beginPath();
+      const p0 = toPx(arr[0]); ctx.moveTo(p0.px, p0.py);
+      for (let i = 1; i < arr.length; i++) { const q = toPx(arr[i]); ctx.lineTo(q.px, q.py); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    // bore
+    if (S.boreR > 0.4) {
+      const bx = S.boreR * scale, by = baseY - S.boreCeil * scale;
+      ctx.strokeStyle = "#f59e0b"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(cx - bx, baseY); ctx.lineTo(cx - bx, by); ctx.lineTo(cx + bx, by); ctx.lineTo(cx + bx, baseY);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = "#6b7785";
+    ctx.font = "11px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Front view · adjust with sliders", W / 2, H - 7);
+  }
+
   draw() {
+    if (this.store.model.custom && this.store.model.shape2D) { this._drawCustom(); return; }
     const ctx = this.ctx;
     const f = this._fit();
     const pts = this.store.profilePoints;

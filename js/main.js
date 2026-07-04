@@ -15,19 +15,20 @@ document.getElementById("loading").classList.add("hidden");
 
 // ---- regeneration -------------------------------------------------------------
 let raf = 0;
-function regenerate() {
+function regenerate(frame = false) {
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(() => {
     const mesh = buildKnobMesh(store.model, store.params, store.profilePoints);
     scene.setMesh(mesh);
+    if (frame) scene.frameMesh(mesh); // refit the camera when the model changes
     ui.setSizeReadout(meshDimensions(mesh.geometry));
   });
 }
 
 store.subscribe((reason) => {
-  if (reason === "model" || reason === "param" || reason === "profile") regenerate();
+  if (reason === "model" || reason === "param" || reason === "profile") regenerate(reason === "model");
 });
-regenerate(); // initial
+regenerate(true); // initial (fit camera to the first model)
 
 // ---- viewport controls --------------------------------------------------------
 const gridBtn = document.getElementById("toggle-grid");

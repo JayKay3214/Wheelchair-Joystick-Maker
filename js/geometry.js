@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { goalPostShape, gpTopHeight, tbarShape, tbarCenterY, tbarScale } from "./models.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -135,12 +136,194 @@ function ensureOutwardWinding(geometry) {
   }
 }
 
+/** Concatenate geometries into one non-indexed BufferGeometry, preserving each part's
+ * own normals (so a smooth-shaded part stays smooth and a faceted part stays faceted). */
+function mergeGeoms(list) {
+  const geos = list.map((g) => {
+    if (!g.attributes.normal) g.computeVertexNormals();
+    return g.index ? g.toNonIndexed() : g;
+  });
+  let tp = 0;
+  for (const g of geos) tp += g.attributes.position.array.length;
+  const pos = new Float32Array(tp), nor = new Float32Array(tp);
+  let off = 0;
+  for (const g of geos) {
+    pos.set(g.attributes.position.array, off);
+    nor.set(g.attributes.normal.array, off);
+    off += g.attributes.position.array.length;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  return out;
+}
+
+/** Reorder each triangle of an indexed geometry so its normal points away from an
+ * interior point C — robustly outward-orients a star-shaped solid (the base pad). */
+function orientOutward(g, cx, cy, cz) {
+  const p = g.attributes.position, id = g.index.array;
+  for (let t = 0; t < id.length; t += 3) {
+    const a = id[t], b = id[t + 1], c = id[t + 2];
+    const ax = p.getX(a), ay = p.getY(a), az = p.getZ(a);
+    const ux = p.getX(b) - ax, uy = p.getY(b) - ay, uz = p.getZ(b) - az;
+    const wx = p.getX(c) - ax, wy = p.getY(c) - ay, wz = p.getZ(c) - az;
+    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const gx = (ax + p.getX(b) + p.getX(c)) / 3 - cx;
+    const gy = (ay + p.getY(b) + p.getY(c)) / 3 - cy;
+    const gz = (az + p.getZ(b) + p.getZ(c)) / 3 - cz;
+    if (nx * gx + ny * gy + nz * gz < 0) { id[t + 1] = c; id[t + 2] = b; }
+  }
+  g.index.needsUpdate = true;
+}
+
+/** The contoured palm-rest base pad as a smooth heightfield solid (top grid + flat
+ * bottom + rim). Star-shaped about its mid-plane, so orientOutward gives clean normals. */
+function buildBasePad(P) {
+  const nx = 56, nz = 48, halfW = P.halfW, halfD = P.halfD;
+  const pos = [];
+  for (let i = 0; i <= nx; i++) { const x = -halfW + (2 * halfW * i) / nx;
+    for (let j = 0; j <= nz; j++) { const z = -halfD + (2 * halfD * j) / nz; pos.push(x, gpTopHeight(P, x, z), z); } }
+  const topV = (nx + 1) * (nz + 1);
+  for (let i = 0; i <= nx; i++) { const x = -halfW + (2 * halfW * i) / nx;
+    for (let j = 0; j <= nz; j++) { const z = -halfD + (2 * halfD * j) / nz; pos.push(x, P.B0, z); } }
+  const id = (i, j) => i * (nz + 1) + j, bid = (i, j) => topV + i * (nz + 1) + j;
+  const idx = [];
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    idx.push(id(i, j), id(i + 1, j + 1), id(i + 1, j), id(i, j), id(i, j + 1), id(i + 1, j + 1));          // top
+    idx.push(bid(i, j), bid(i + 1, j), bid(i + 1, j + 1), bid(i, j), bid(i + 1, j + 1), bid(i, j + 1));    // bottom
+  }
+  const wall = (t0, t1, b0, b1) => idx.push(t0, b0, b1, t0, b1, t1);
+  for (let i = 0; i < nx; i++) { wall(id(i, 0), id(i + 1, 0), bid(i, 0), bid(i + 1, 0)); wall(id(i, nz), id(i + 1, nz), bid(i, nz), bid(i + 1, nz)); }
+  for (let j = 0; j < nz; j++) { wall(id(0, j), id(0, j + 1), bid(0, j), bid(0, j + 1)); wall(id(nx, j), id(nx, j + 1), bid(nx, j), bid(nx, j + 1)); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  orientOutward(g, 0, P.B0 + P.baseThk * 0.4, 0);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Goal-post: a contoured palm-rest base pad + two inward-hooking side-wall arms (each an
+ * extruded arc spanning only part of the depth) + a bored central stem. The parts overlap
+ * and are merged; each is individually watertight so slicers union them cleanly.
+ */
+function buildGoalPost(params, opts = {}) {
+  const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 72);
+  const P = goalPostShape(params);
+
+  const base = buildBasePad(P);
+
+  // Each arm: extrude its front-view (X-Y) ribbon along Z by armDepth, centred on the stem.
+  const buildArm = (outline) => {
+    const shape = new THREE.Shape();
+    shape.moveTo(outline[0].x, outline[0].y);
+    for (let i = 1; i < outline.length; i++) shape.lineTo(outline[i].x, outline[i].y);
+    shape.closePath();
+    const bevel = Math.min(2.6, P.armThk * 0.28);
+    const dp = Math.max(1, P.armDepth - 2 * bevel);
+    const g = new THREE.ExtrudeGeometry(shape, {
+      depth: dp, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3,
+      steps: 1, curveSegments: 16,
+    });
+    g.translate(0, 0, -dp / 2);
+    return g;
+  };
+  const armR = buildArm(P.armRightOutline), armL = buildArm(P.armLeftOutline);
+
+  // Stem + blind bore as a small solid of revolution (same trick as the round heads).
+  const sec = [
+    new THREE.Vector2(0, P.stemTopY),
+    new THREE.Vector2(P.stemR, P.stemTopY),
+    new THREE.Vector2(P.stemR, 0),
+  ];
+  if (P.boreR > 0.4) {
+    sec.push(new THREE.Vector2(P.boreR, 0));
+    sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
+    sec.push(new THREE.Vector2(0, P.boreCeil));
+  } else {
+    sec.push(new THREE.Vector2(0, 0));
+  }
+  const stem = new THREE.LatheGeometry(sec, segments);
+  ensureOutwardWinding(stem);
+
+  const geometry = mergeGeoms([base, armR, armL, stem]);
+  geometry.computeBoundingBox();
+  base.dispose();
+  armR.dispose();
+  armL.dispose();
+  stem.dispose();
+  return geometry;
+}
+
+/** Small bored stem as a solid of revolution, reused by the non-revolution heads. */
+function buildStem(P, segments) {
+  const sec = [
+    new THREE.Vector2(0, P.stemTopY),
+    new THREE.Vector2(P.stemR, P.stemTopY),
+    new THREE.Vector2(P.stemR, 0),
+  ];
+  if (P.boreR > 0.4) {
+    sec.push(new THREE.Vector2(P.boreR, 0));
+    sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
+    sec.push(new THREE.Vector2(0, P.boreCeil));
+  } else {
+    sec.push(new THREE.Vector2(0, 0));
+  }
+  const stem = new THREE.LatheGeometry(sec, segments);
+  ensureOutwardWinding(stem);
+  return stem;
+}
+
+/**
+ * T-Bar: a flattened-oval tube swept along the X axis (the handle) whose ends droop and
+ * taper to closed tips, fused with a central bored stem. The tube is a uniform (t,theta)
+ * grid; the end rings collapse to the tips (harmless degenerate quads), so winding stays
+ * consistent and ensureOutwardWinding orients the whole shell.
+ */
+function buildTBar(params, opts = {}) {
+  const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 64);
+  const P = tbarShape(params);
+  const nt = 90, nth = segments;
+  const pos = [];
+  for (let i = 0; i <= nt; i++) {
+    const t = -1 + (2 * i) / nt;
+    const cx = t * P.halfL, cy = tbarCenterY(P, t), s = tbarScale(P, t);
+    for (let j = 0; j < nth; j++) {
+      const th = (2 * Math.PI * j) / nth;
+      pos.push(cx, cy + s * P.ry * Math.sin(th), s * P.rz * Math.cos(th));
+    }
+  }
+  const idx = [];
+  for (let i = 0; i < nt; i++) {
+    for (let j = 0; j < nth; j++) {
+      const j1 = (j + 1) % nth;
+      const a = i * nth + j, b = i * nth + j1, c = (i + 1) * nth + j1, d = (i + 1) * nth + j;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  const bar = new THREE.BufferGeometry();
+  bar.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  bar.setIndex(idx);
+  ensureOutwardWinding(bar);
+
+  const stem = buildStem(P, segments);
+  const geometry = mergeGeoms([bar, stem]);
+  geometry.computeBoundingBox();
+  bar.dispose();
+  stem.dispose();
+  return geometry;
+}
+
 /**
  * Assemble the full closed cross-section (radius vs height) and revolve it.
  * The first point (top, x=0) and the last (bore ceiling, x=0) lie on the axis,
  * so LatheGeometry yields a watertight, manifold solid — no CSG.
+ * Non-revolution models (e.g. Goal Posts, T-Bar) branch to their own builder.
  */
 export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
+  if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
+  if (model.geometryKind === "tbar") return buildTBar(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
   const rounded = roundCorners(profilePoints, params.edgeRound || 0);
   const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;

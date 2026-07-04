@@ -111,7 +111,25 @@ export class SceneManager {
     this.grid.visible = v;
   }
 
+  /** Fit the camera to a mesh's bounding box, keeping the default viewing direction. */
+  frameMesh(mesh) {
+    if (!mesh || !mesh.geometry) return this.resetView();
+    const g = mesh.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const size = new THREE.Vector3(), center = new THREE.Vector3();
+    g.boundingBox.getSize(size);
+    g.boundingBox.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = (this.camera.fov * Math.PI) / 180;
+    const dist = (maxDim * 0.5) / Math.tan(fov / 2) * 1.5 + maxDim * 0.25;
+    const dir = this.defaultCamPos.clone().normalize();
+    this.controls.target.copy(center);
+    this.camera.position.copy(center).addScaledVector(dir, dist);
+    this.controls.update();
+  }
+
   resetView() {
+    if (this.mesh) return this.frameMesh(this.mesh);
     this.camera.position.copy(this.defaultCamPos);
     this.controls.target.set(0, 18, 0);
     this.controls.update();

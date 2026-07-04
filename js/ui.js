@@ -2,14 +2,44 @@ import { MODELS, fullSchema } from "./models.js";
 
 const MM_PER_IN = 25.4;
 
-/** Format a stored value (always mm/deg/x internally) for display in the chosen unit. */
-function formatValue(schema, value, unit) {
-  if (schema.unit === "deg") return `${Math.round(value)}°`;
-  if (schema.unit === "x") return `${value.toFixed(2)}×`;
-  // length
-  if (unit === "in") return `${(value / MM_PER_IN).toFixed(3)}″`;
-  const dec = schema.step < 0.1 ? 2 : schema.step < 1 ? 1 : 0;
-  return `${value.toFixed(dec)} mm`;
+/** Is this a length param (stored in mm, convertible to inches)? */
+function isLength(schema) {
+  return schema.unit !== "deg" && schema.unit !== "x";
+}
+
+/** Decimal places to show for a length param in mm, based on its slider step. */
+function mmDecimals(schema) {
+  return schema.step < 0.1 ? 2 : schema.step < 1 ? 1 : 0;
+}
+
+/** The unit symbol shown next to the editable number for this param. */
+function unitSuffix(schema, unit) {
+  if (schema.unit === "deg") return "°";
+  if (schema.unit === "x") return "×";
+  return unit === "in" ? "″" : "mm";
+}
+
+/** A stored value (always mm/deg/x internally) as a bare number string in the chosen unit. */
+function displayNumber(schema, value, unit) {
+  if (schema.unit === "deg") return String(Math.round(value));
+  if (schema.unit === "x") return value.toFixed(2);
+  if (unit === "in") return (value / MM_PER_IN).toFixed(3);
+  return value.toFixed(mmDecimals(schema));
+}
+
+/** Parse a number typed in the display unit back to the internal (mm/deg/x) value, or null. */
+function parseToStored(schema, raw, unit) {
+  const v = parseFloat(raw);
+  if (!isFinite(v)) return null;
+  return isLength(schema) && unit === "in" ? v * MM_PER_IN : v;
+}
+
+/** Snap to the slider step and clamp to [min, max] (all in internal units). */
+function snapClamp(schema, value, max) {
+  const stepped = Math.round((value - schema.min) / schema.step) * schema.step + schema.min;
+  const clamped = Math.min(Math.max(stepped, schema.min), max);
+  // Kill floating-point crud from the step arithmetic.
+  return parseFloat(clamped.toFixed(6));
 }
 
 export class UI {
@@ -44,6 +74,7 @@ export class UI {
   _buildModelPicker() {
     this.modelPicker.innerHTML = "";
     for (const m of MODELS) {
+      if (m.hidden) continue; // e.g. Goal Posts — kept in code, hidden from the picker
       const card = document.createElement("button");
       card.type = "button";
       card.className = "model-card" + (m.id === this.store.modelId ? " is-active" : "");
@@ -84,9 +115,19 @@ export class UI {
     const label = document.createElement("span");
     label.className = "control-label";
     label.textContent = schema.label;
-    const valEl = document.createElement("span");
-    valEl.className = "control-value";
-    head.append(label, valEl);
+
+    // Editable value: a number input plus a unit label, styled to read like text.
+    const valWrap = document.createElement("span");
+    valWrap.className = "control-value";
+    const numEl = document.createElement("input");
+    numEl.type = "number";
+    numEl.className = "control-num";
+    numEl.step = schema.step;
+    numEl.setAttribute("aria-label", `${schema.label} value`);
+    const unitEl = document.createElement("span");
+    unitEl.className = "control-unit";
+    valWrap.append(numEl, unitEl);
+    head.append(label, valWrap);
 
     const input = document.createElement("input");
     input.type = "range";
@@ -96,23 +137,57 @@ export class UI {
     input.value = this.store.params[schema.key];
     input.setAttribute("aria-label", schema.label);
 
-    const onInput = () => {
+    // Dragging the slider -> update the store + typed value.
+    input.addEventListener("input", () => {
       const v = parseFloat(input.value);
-      valEl.textContent = formatValue(schema, v, this.store.unit);
+      numEl.value = displayNumber(schema, v, this.store.unit);
       this.store.setParam(schema.key, v);
-    };
-    input.addEventListener("input", onInput);
-    // Double-click resets just this slider to its default.
+    });
+    // Double-click the slider resets just this control to its default.
     input.addEventListener("dblclick", () => {
       this.store.resetParam(schema.key);
-      input.value = this.store.params[schema.key];
-      valEl.textContent = formatValue(schema, parseFloat(input.value), this.store.unit);
+      this._syncOne(schema.key);
     });
 
-    valEl.textContent = formatValue(schema, parseFloat(input.value), this.store.unit);
+    // Typing a value -> parse (in display unit), snap to step, clamp to range, apply.
+    const commitTyped = () => {
+      const stored = parseToStored(schema, numEl.value, this.store.unit);
+      if (stored === null) {
+        this._syncOne(schema.key); // revert junk input to the current value
+        return;
+      }
+      const v = snapClamp(schema, stored, this._dynamicMax(schema));
+      input.value = v;
+      this.store.setParam(schema.key, v);
+      numEl.value = displayNumber(schema, v, this.store.unit);
+    };
+    numEl.addEventListener("change", commitTyped);
+    numEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") numEl.blur();
+    });
+
     wrap.append(head, input);
-    this.sliderEls.set(schema.key, { input, value: valEl, schema });
+    this.sliderEls.set(schema.key, { input, num: numEl, unit: unitEl, schema });
+    this._syncOne(schema.key);
     return wrap;
+  }
+
+  // Refresh one control's slider, typed number, and unit label from the store.
+  _syncOne(key) {
+    const entry = this.sliderEls.get(key);
+    if (!entry) return;
+    const { input, num, unit, schema } = entry;
+    const max = this._dynamicMax(schema);
+    if (parseFloat(input.max) !== max) input.max = max;
+    const v = this.store.params[key];
+    if (parseFloat(input.value) !== v) input.value = v;
+    // Give the number field the same bounds/step so its native spinner obeys them.
+    const inUnit = isLength(schema) && this.store.unit === "in";
+    num.min = inUnit ? (schema.min / MM_PER_IN).toFixed(3) : schema.min;
+    num.max = inUnit ? (max / MM_PER_IN).toFixed(3) : max;
+    num.step = inUnit ? 0.001 : schema.step;
+    if (document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
+    unit.textContent = unitSuffix(schema, this.store.unit);
   }
 
   // Edge rounding gets a dynamic ceiling scaled to the shape (e.g. its top radius).
@@ -125,13 +200,7 @@ export class UI {
 
   // Refresh slider positions + readouts from the store (after model/param/unit change).
   _syncSliderValues() {
-    for (const [key, { input, value, schema }] of this.sliderEls) {
-      const max = this._dynamicMax(schema);
-      if (parseFloat(input.max) !== max) input.max = max;
-      const v = this.store.params[key];
-      if (parseFloat(input.value) !== v) input.value = v;
-      value.textContent = formatValue(schema, v, this.store.unit);
-    }
+    for (const key of this.sliderEls.keys()) this._syncOne(key);
   }
 
   _wireUnitToggle() {
