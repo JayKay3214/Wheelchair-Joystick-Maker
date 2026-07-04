@@ -73,106 +73,44 @@ function quad(p0, p1, p2, N) {
   return out;
 }
 
-// ---- goal-post geometry recipe -------------------------------------------------
-// The goal-post is NOT a solid of revolution or a simple extrusion. It is:
-//   * a thin contoured BASE (palm rest): the top is shaped front-to-back with a tight
-//     curve at the FRONT (fingers) and a long gradual slope at the BACK (palm), plus an
-//     optional central MOUND over the stem;
-//   * two curved SIDE WALLS (arms) that rise from the left/right of the base and hook
-//     inward, spanning only PART of the base depth (not its whole length);
-//   * a bored stem, centred under the base.
-// This recipe is shared by the 3D builder (geometry.js) and the 2D front-view preview.
+// ---- goal-post geometry recipe (rebuild, step 1) -------------------------------
+// Being rebuilt incrementally. For now the goal-post is just:
+//   * a centred bored stem;
+//   * a rectangular base box whose TOP is a smooth dome — it curves up in both
+//     directions to a peak at the centre and drops to the box-top height along the four
+//     edges. The bottom and the four sides stay a plain rectangular prism; only the top
+//     surface is raised by the hump (hump = 0 -> perfectly flat top).
+// (Side walls / palm contour will be added in later steps.)
+// Shared by the 3D builder (geometry.js) and the 2D front-view preview.
 
-const GP_BASE_THK = 7; // nominal base-pad thickness (mm) — deliberately thin
-const GP_ARM_THK = 9;  // side-wall (arm) thickness (mm)
+const GP_BASE_THK = 10; // rectangular base thickness (box height when the top is flat)
 
-// Sample a Catmull-Rom spline through the control points (`per` samples per segment).
-function gpCatmull(pts, per) {
-  const cr = (p0, p1, p2, p3, t) => {
-    const t2 = t * t, t3 = t2 * t;
-    const f = (a, b, c, d) =>
-      0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
-    return { x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) };
-  };
-  const out = [], n = pts.length;
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
-    for (let s = 0; s < per; s++) out.push(cr(p0, p1, p2, p3, s / per));
-  }
-  out.push(pts[n - 1]);
-  return out;
-}
-
-// Offset a centreline into a constant-thickness closed ribbon outline (CCW for extrude).
-function gpRibbon(cp, thk, per) {
-  const c = gpCatmull(cp, per), h = thk / 2, m = c.length, top = [], bot = [];
-  for (let i = 0; i < m; i++) {
-    const a = c[Math.max(0, i - 1)], b = c[Math.min(m - 1, i + 1)];
-    let tx = b.x - a.x, ty = b.y - a.y;
-    const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
-    top.push({ x: c[i].x - ty * h, y: c[i].y + tx * h });
-    bot.push({ x: c[i].x + ty * h, y: c[i].y - tx * h });
-  }
-  let out = [...top, ...bot.reverse()];
-  let area = 0;
-  for (let i = 0; i < out.length; i++) { const q = out[i], r = out[(i + 1) % out.length]; area += q.x * r.y - r.x * q.y; }
-  if (area < 0) out.reverse();
-  return out;
-}
-
-// Top-surface height of the base pad at (x,z). z<0 = front (fingers), z>0 = back (palm).
+// Top-surface height of the base at (x,z): the flat box top (B0 + baseThk) plus a dome
+// that is 0 along the rectangle edges and `hump` mm at the centre.
 export function gpTopHeight(P, x, z) {
   const u = x / P.halfW, w = z / P.halfD;
-  // edge falloff -> the pad thins to a rounded rim (rounded-rectangle footprint).
-  const ef = Math.pow(Math.max(0, (1 - Math.pow(Math.abs(u), 8)) * (1 - Math.pow(Math.abs(w), 8))), 0.5);
-  // palm contour: a skewed bump peaking just behind the front edge (tight curve at the
-  // front for fingers, long gradual slope to the back where the palm rests).
-  const wp = P.palmPeak;
-  const t = Math.min(1, w <= wp ? (wp - w) / (wp + 1) : (w - wp) / (1 - wp));
-  const palm = P.palmAmt * (0.5 + 0.5 * Math.cos(Math.PI * t));
-  // central mound over the stem (flat when moundAmt = 0).
-  const hill = P.moundAmt * Math.exp(-((u / 0.5) ** 2 + (w / 0.55) ** 2));
-  const rim = 2.0; // minimum edge thickness so the rim isn't a knife edge
-  return P.B0 + rim + (P.baseThk - rim + palm + hill) * ef;
+  const dome = Math.max(0, 1 - u * u) * Math.max(0, 1 - w * w);
+  return P.B0 + P.baseThk + P.hump * dome;
 }
 
 export function goalPostShape(p) {
-  const width = p.width, height = p.height;
-  const depth = Math.min(Math.max(width * 0.52, 42), 60);
   const P = {
-    width, depth, height,
-    halfW: width / 2, halfD: depth / 2,
-    B0: p.stemHeight,                 // base pad underside sits on the stem top
-    baseThk: GP_BASE_THK, armThk: GP_ARM_THK,
-    palmAmt: Math.min(11, depth * 0.22), palmPeak: -0.12,
-    moundAmt: p.mound,
-    wallSpan: p.wallSpan, wallCurve: p.wallCurve,
+    halfW: p.baseWidth / 2,
+    halfD: p.baseLength / 2,
+    B0: p.stemHeight,            // base underside sits on the stem top
+    baseThk: GP_BASE_THK,
+    hump: p.hump,
     stemR: Math.max(p.stemDia / 2, 2),
-    stemTopY: p.stemHeight + 4,        // pushes up into the base so the solids fuse
+    stemTopY: p.stemHeight + 4,  // pokes up into the base so the two solids fuse
   };
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
   P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
-  P.armDepth = Math.max(6, P.wallSpan * depth); // side walls span only part of the depth
 
-  // Side-wall (arm) centrelines in the front (X-Y) plane: rise from the base, hook inward.
-  const halfW = P.halfW, H = height, curve = P.wallCurve;
-  // Arms rise almost vertically from the base, then hook inward near the top (a slight
-  // outward belly, controlled amount of inward hook via wallCurve).
-  const rootX = 0.80 * halfW, yRoot = gpTopHeight(P, rootX, 0);
-  const cpR = [
-    { x: rootX, y: yRoot },
-    { x: rootX + 0.04 * halfW, y: yRoot + 0.45 * H },
-    { x: rootX - 0.02 * halfW, y: yRoot + 0.78 * H },
-    { x: rootX - (0.14 + 0.30 * curve) * halfW, y: yRoot + H },
-  ];
-  P.armRightOutline = gpRibbon(cpR, P.armThk, 14);
-  P.armLeftOutline = gpRibbon(cpR.map((q) => ({ x: -q.x, y: q.y })), P.armThk, 14);
-
-  // Front-view base silhouette for the 2D editor.
-  const baseOutline = []; const NS = 44;
-  for (let i = 0; i <= NS; i++) { const x = -halfW + (2 * halfW * i) / NS; baseOutline.push({ x, y: gpTopHeight(P, x, 0) }); }
-  baseOutline.push({ x: halfW, y: P.B0 }, { x: -halfW, y: P.B0 });
-  P.front = { parts: [baseOutline, P.armRightOutline, P.armLeftOutline] };
+  // Front-view (X-Y) silhouette for the 2D editor: domed top across x, then down the
+  // sides to the flat bottom.
+  const NS = 48, top = [];
+  for (let i = 0; i <= NS; i++) { const x = -P.halfW + (2 * P.halfW * i) / NS; top.push({ x, y: gpTopHeight(P, x, 0) }); }
+  P.front = { parts: [[...top, { x: P.halfW, y: P.B0 }, { x: -P.halfW, y: P.B0 }]] };
   return P;
 }
 
@@ -233,7 +171,7 @@ const ICON = {
   chincup: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 16 C6 22 34 22 34 16 C34 13 28 11 20 11 C12 11 6 13 6 16 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   carrot: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M11 9 L29 9 L24 30 L16 30 Z" stroke-width="2"/></svg>`,
   ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M14 6 L24 8 L21 27 L15 26 Z" stroke-width="2"/><rect class="stroke fill" x="13" y="26" width="7" height="9" rx="1.5" stroke-width="2"/></svg>`,
-  goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M5 13 C5 9 10 9 10 13 L10 19 C16 22 24 22 30 19 L30 13 C30 9 35 9 35 13 L35 20 C35 27 5 27 5 20 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="9" rx="1.5" stroke-width="2"/></svg>`,
+  goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 21 C6 12 34 12 34 21 L34 25 L6 25 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="25" width="6" height="9" rx="1.5" stroke-width="2"/></svg>`,
   tbar: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M4 14 C14 9 26 9 36 14 C26 18 14 18 4 14 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="16" width="6" height="18" rx="1.5" stroke-width="2"/></svg>`,
 };
 
@@ -405,8 +343,6 @@ const MODELS = [
     id: "goalpost",
     label: "Goal Posts",
     icon: ICON.goalpost,
-    // Hidden from the picker for now — the shape still needs work (see project memory).
-    hidden: true,
     // Not a solid of revolution: geometry.js builds it from goalPostShape() instead of
     // revolving a profile. custom -> the 2D editor shows a static front view (no drag).
     smoothProfile: false,
@@ -414,11 +350,9 @@ const MODELS = [
     geometryKind: "goalpost",
     shape2D: goalPostShape,
     schema: [
-      { key: "width", label: "Width", min: 60, max: 130, step: 1, group: "shape", unit: "mm", def: 92 },
-      { key: "height", label: "Side-wall height", min: 12, max: 55, step: 0.5, group: "shape", unit: "mm", def: 34 },
-      { key: "mound", label: "Base mound", min: 0, max: 12, step: 0.5, group: "shape", unit: "mm", def: 4 },
-      { key: "wallSpan", label: "Side-wall length", min: 0.25, max: 0.9, step: 0.05, group: "shape", unit: "x", def: 0.5 },
-      { key: "wallCurve", label: "Side-wall inward curve", min: 0, max: 1, step: 0.05, group: "shape", unit: "x", def: 0.4 },
+      { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 60 },
+      { key: "baseLength", label: "Base length", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 80 },
+      { key: "hump", label: "Top hump", min: 0, max: 25, step: 0.5, group: "shape", unit: "mm", def: 6 },
     ],
     defaults: { stemDia: 14, stemHeight: 20, boreDepth: 22 },
     // Placeholder profile so the store stays valid; the custom builder ignores it.

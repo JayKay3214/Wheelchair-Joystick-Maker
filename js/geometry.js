@@ -204,54 +204,20 @@ function buildBasePad(P) {
 }
 
 /**
- * Goal-post: a contoured palm-rest base pad + two inward-hooking side-wall arms (each an
- * extruded arc spanning only part of the depth) + a bored central stem. The parts overlap
- * and are merged; each is individually watertight so slicers union them cleanly.
+ * Goal-post (rebuild step 1): a rectangular base box with a smooth domed top, fused with
+ * a centred bored stem. The parts overlap and are merged; each is individually watertight
+ * so slicers union them cleanly. (Side walls come in a later step.)
  */
 function buildGoalPost(params, opts = {}) {
   const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 72);
   const P = goalPostShape(params);
 
   const base = buildBasePad(P);
+  const stem = buildStem(P, segments);
 
-  // Each arm: extrude its front-view (X-Y) ribbon along Z by armDepth, centred on the stem.
-  const buildArm = (outline) => {
-    const shape = new THREE.Shape();
-    shape.moveTo(outline[0].x, outline[0].y);
-    for (let i = 1; i < outline.length; i++) shape.lineTo(outline[i].x, outline[i].y);
-    shape.closePath();
-    const bevel = Math.min(2.6, P.armThk * 0.28);
-    const dp = Math.max(1, P.armDepth - 2 * bevel);
-    const g = new THREE.ExtrudeGeometry(shape, {
-      depth: dp, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3,
-      steps: 1, curveSegments: 16,
-    });
-    g.translate(0, 0, -dp / 2);
-    return g;
-  };
-  const armR = buildArm(P.armRightOutline), armL = buildArm(P.armLeftOutline);
-
-  // Stem + blind bore as a small solid of revolution (same trick as the round heads).
-  const sec = [
-    new THREE.Vector2(0, P.stemTopY),
-    new THREE.Vector2(P.stemR, P.stemTopY),
-    new THREE.Vector2(P.stemR, 0),
-  ];
-  if (P.boreR > 0.4) {
-    sec.push(new THREE.Vector2(P.boreR, 0));
-    sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
-    sec.push(new THREE.Vector2(0, P.boreCeil));
-  } else {
-    sec.push(new THREE.Vector2(0, 0));
-  }
-  const stem = new THREE.LatheGeometry(sec, segments);
-  ensureOutwardWinding(stem);
-
-  const geometry = mergeGeoms([base, armR, armL, stem]);
+  const geometry = mergeGeoms([base, stem]);
   geometry.computeBoundingBox();
   base.dispose();
-  armR.dispose();
-  armL.dispose();
   stem.dispose();
   return geometry;
 }
