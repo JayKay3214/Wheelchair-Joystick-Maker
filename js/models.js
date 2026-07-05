@@ -183,6 +183,8 @@ export function goalPostShape(p) {
 // the left/right (wall) ends and droops DOWN toward the front/back ends. The centre stays
 // fixed; the "Palm Rest" slider only sets how much the front/back droop. (Walls come later.)
 const GPO_SLAB_THK = 12; // saddle slab thickness (mm)
+const GPO_WALL_THK = 8;  // side-wall thickness (x, mm)
+const GPO_TAB_OUT = 12;  // how far the rectangular tab sticks out past the oval edge (mm)
 
 // Elliptical footprint half-width (x half-extent) at depth z; a small floor keeps the
 // front/back ends slightly rounded instead of collapsing to a degenerate point.
@@ -198,6 +200,7 @@ export function gpOvalMid(P, x, z) {
   return P.midCentre - P.sideBend * u * u - P.droop * w * w;
 }
 
+
 export function gpOvalShape(p) {
   const P = {
     halfW: p.baseWidth / 2,
@@ -210,6 +213,15 @@ export function gpOvalShape(p) {
   P.sideBend = Math.max(0, Math.min(p.sideBend || 0, p.stemHeight - 3));
   P.midCentre = p.stemHeight + P.halfThick; // centre-bottom sits at the stem top
   P.stemTopY = p.stemHeight + 2;            // pokes into the base so the two solids fuse
+  // Side walls: a rectangular tab sticks straight out at each widest point (z=0), with a
+  // straight vertical wall at the tab's outer tip.
+  P.wallHeight = p.wallHeight || 0;
+  P.wallLen = Math.max(0, Math.min(p.wallLength || 0, p.baseLength));
+  P.wallThk = GPO_WALL_THK;
+  P.tabOut = GPO_TAB_OUT;
+  P.tabOuter = P.halfW + P.tabOut;                    // outer tip of the tab / wall (|x|)
+  P.wallBandInner = P.tabOuter - P.wallThk;           // inner face of the vertical wall
+  P.wallTopY = (P.midCentre - P.sideBend) + P.halfThick + P.wallHeight; // FLAT wall top
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
   P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
 
@@ -490,6 +502,8 @@ const MODELS = [
       { key: "baseLength", label: "Base length", min: 20, max: 90, step: 1, group: "shape", unit: "mm", def: 56 },
       { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
+      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
+      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {

@@ -233,42 +233,103 @@ function buildGoalPost(params, opts = {}) {
 /** Goal Post Experimental: an oval "Pringles" saddle slab (curved top AND bottom over an
  * elliptical footprint) fused with a bored central stem. Winding is correct by construction:
  * top grid wound +Y, bottom -Y, rim strips oriented per-quad away from the vertical axis. */
+// The whole head as ONE watertight solid: a smooth elliptical saddle slab, PLUS an explicitly
+// built tab+wall prism on each widest side. The prism shares the oval's edge line (so no seam)
+// but has clean straight ends + a straight vertical wall (an L cross-section), which the warped
+// grid alone can't produce at the tab-to-ellipse transition.
 function buildOvalBase(P) {
   const halfD = P.halfD;
-  const nx = Math.max(40, Math.min(100, Math.round(P.halfW * 2 * 1.4)));
-  const nz = Math.max(50, Math.min(130, Math.round(halfD * 2 * 1.7)));
-  const zAt = (j) => -halfD + (2 * halfD * j) / nz;
-  const pos = [];
-  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
-    const z = zAt(j), hw = gpOvalHalfWidth(P, z), x = -hw + (2 * hw * i) / nx;
-    pos.push(x, gpOvalMid(P, x, z) + P.halfThick, z); // top surface
-  }
-  const topV = (nx + 1) * (nz + 1);
-  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
-    const z = zAt(j), hw = gpOvalHalfWidth(P, z), x = -hw + (2 * hw * i) / nx;
-    pos.push(x, gpOvalMid(P, x, z) - P.halfThick, z); // bottom surface
-  }
-  const id = (i, j) => i * (nz + 1) + j, bid = (i, j) => topV + i * (nz + 1) + j;
-  const idx = [];
-  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
-    idx.push(id(i, j), id(i + 1, j + 1), id(i + 1, j), id(i, j), id(i, j + 1), id(i + 1, j + 1));       // top (+Y)
-    idx.push(bid(i, j), bid(i + 1, j), bid(i + 1, j + 1), bid(i, j), bid(i + 1, j + 1), bid(i, j + 1)); // bottom (-Y)
-  }
-  const at = (a) => [pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]];
-  const addRim = (t0, t1, b0, b1) => {
-    const A = at(t0), C = at(b0), D = at(b1);
-    const ux = C[0] - A[0], uy = C[1] - A[1], uz = C[2] - A[2];
-    const wx = D[0] - A[0], wy = D[1] - A[1], wz = D[2] - A[2];
-    const nx2 = uy * wz - uz * wy, nz2 = ux * wy - uy * wx;
-    const cx = (A[0] + at(t1)[0] + C[0] + D[0]) / 4, cz = (A[2] + at(t1)[2] + C[2] + D[2]) / 4;
-    if (nx2 * cx + nz2 * cz >= 0) idx.push(t0, b0, b1, t0, b1, t1);
-    else idx.push(t0, b1, b0, t0, t1, b1);
+  const hasWall = P.wallHeight > 0.1 && P.wallLen > 1;
+  const half = P.wallLen / 2;
+  const T = []; // non-indexed triangle soup (watertightness verified by quantised coords)
+  const cross = (a, b, c) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
   };
-  for (let i = 0; i < nx; i++) { addRim(id(i, 0), id(i + 1, 0), bid(i, 0), bid(i + 1, 0)); addRim(id(i, nz), id(i + 1, nz), bid(i, nz), bid(i + 1, nz)); }
-  for (let j = 0; j < nz; j++) { addRim(id(0, j), id(0, j + 1), bid(0, j), bid(0, j + 1)); addRim(id(nx, j), id(nx, j + 1), bid(nx, j), bid(nx, j + 1)); }
+  // push one triangle, winding it so its normal points toward `out`
+  const tri = (a, b, c, out) => {
+    const n = cross(a, b, c);
+    if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] >= 0) T.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+    else T.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
+  };
+  const quad = (a, b, c, d, out) => { tri(a, b, c, out); tri(a, c, d, out); };
+  const UP = [0, 1, 0], DN = [0, -1, 0];
+  const eT = (x, z) => [x, gpOvalMid(P, x, z) + P.halfThick, z]; // oval top surface point
+  const eB = (x, z) => [x, gpOvalMid(P, x, z) - P.halfThick, z]; // oval bottom surface point
+
+  // ---- z-sample rows (land exactly on +/-half so the tab attaches on clean rows) ----
+  let zs = [];
+  const nz = Math.max(60, Math.min(180, Math.round(halfD * 2 * 2.0)));
+  for (let j = 0; j <= nz; j++) zs.push(-halfD + (2 * halfD * j) / nz);
+  if (hasWall) zs.push(-half, half);
+  zs = [...new Set(zs)].filter((z) => z >= -halfD - 1e-9 && z <= halfD + 1e-9).sort((a, b) => a - b);
+  const nx = Math.max(40, Math.min(120, Math.round(P.halfW * 2 * 1.4)));
+  const inTabRow = (z0, z1) => hasWall && z0 >= -half - 1e-9 && z1 <= half + 1e-9;
+
+  // ---- elliptical saddle slab: top + bottom surfaces ----
+  for (let j = 0; j < zs.length - 1; j++) {
+    const z0 = zs[j], z1 = zs[j + 1], hw0 = gpOvalHalfWidth(P, z0), hw1 = gpOvalHalfWidth(P, z1);
+    for (let i = 0; i < nx; i++) {
+      const x0a = -hw0 + (2 * hw0 * i) / nx, x0b = -hw0 + (2 * hw0 * (i + 1)) / nx;
+      const x1a = -hw1 + (2 * hw1 * i) / nx, x1b = -hw1 + (2 * hw1 * (i + 1)) / nx;
+      quad(eT(x0a, z0), eT(x0b, z0), eT(x1b, z1), eT(x1a, z1), UP);
+      quad(eB(x0a, z0), eB(x0b, z0), eB(x1b, z1), eB(x1a, z1), DN);
+    }
+  }
+  // ---- slab rim: front/back ends (all z-caps), plus the +/-x sides EXCEPT where a tab attaches ----
+  for (const end of [[zs[0], -1], [zs[zs.length - 1], 1]]) {
+    const z = end[0], hw = gpOvalHalfWidth(P, z), out = [0, 0, end[1]];
+    for (let i = 0; i < nx; i++) {
+      const xa = -hw + (2 * hw * i) / nx, xb = -hw + (2 * hw * (i + 1)) / nx;
+      quad(eT(xa, z), eT(xb, z), eB(xb, z), eB(xa, z), out);
+    }
+  }
+  for (let j = 0; j < zs.length - 1; j++) {
+    const z0 = zs[j], z1 = zs[j + 1];
+    if (inTabRow(z0, z1)) continue; // the tab prism closes this side here
+    for (const sgn of [-1, 1]) {
+      const xa = sgn * gpOvalHalfWidth(P, z0), xb = sgn * gpOvalHalfWidth(P, z1);
+      quad(eT(xa, z0), eT(xb, z1), eB(xb, z1), eB(xa, z0), [sgn, 0, 0]);
+    }
+  }
+
+  // ---- tab + wall prism on each side (L cross-section), sharing the oval edge line ----
+  if (hasWall) {
+    const tabRows = zs.filter((z) => z >= -half - 1e-9 && z <= half + 1e-9);
+    for (const sgn of [1, -1]) {
+      const OUT = [sgn, 0, 0], IN = [-sgn, 0, 0];
+      const prof = (z) => {
+        const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
+        const top = em + P.halfThick, bot = em - P.halfThick;
+        return {
+          iT: [sgn * hw, top, z], iB: [sgn * hw, bot, z],                 // inner edge (shared w/ oval)
+          aT: [sgn * P.wallBandInner, top, z],                           // flat-tab top / wall inner base
+          cT: [sgn * P.wallBandInner, P.wallTopY, z],                    // wall inner top
+          dT: [sgn * P.tabOuter, P.wallTopY, z],                         // wall outer top
+          oB: [sgn * P.tabOuter, bot, z],                                // outer tip bottom
+          fT: [sgn * P.tabOuter, top, z],                                // outer tip at tab-top level
+        };
+      };
+      for (let k = 0; k < tabRows.length - 1; k++) {
+        const p = prof(tabRows[k]), q = prof(tabRows[k + 1]);
+        quad(p.iT, p.aT, q.aT, q.iT, UP);   // flat tab top
+        quad(p.aT, p.cT, q.cT, q.aT, IN);   // wall inner face (vertical)
+        quad(p.cT, p.dT, q.dT, q.cT, UP);   // wall top
+        quad(p.fT, p.oB, q.oB, q.fT, OUT);  // outer tip face, tab portion (split at fT for cap match)
+        quad(p.dT, p.fT, q.fT, q.dT, OUT);  // outer tip face, wall portion
+        quad(p.oB, p.iB, q.iB, q.oB, DN);   // flat tab bottom
+      }
+      for (const cap of [[prof(tabRows[0]), -1], [prof(tabRows[tabRows.length - 1]), 1]]) {
+        const p = cap[0], out = [0, 0, cap[1]];
+        tri(p.iB, p.oB, p.fT, out); tri(p.iB, p.fT, p.aT, out); tri(p.iB, p.aT, p.iT, out); // tab body (aT kept on top edge)
+        tri(p.aT, p.fT, p.dT, out); tri(p.aT, p.dT, p.cT, out);                             // wall body
+      }
+    }
+  }
+
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
+  g.setAttribute("position", new THREE.Float32BufferAttribute(T, 3));
   g.computeVertexNormals();
   return g;
 }
@@ -276,12 +337,10 @@ function buildOvalBase(P) {
 function buildGoalPostOval(params, opts = {}) {
   const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 72);
   const P = gpOvalShape(params);
-  const base = buildOvalBase(P);
-  const stem = buildStem(P, segments);
-  const geometry = mergeGeoms([base, stem]);
+  const parts = [buildOvalBase(P), buildStem(P, segments)]; // base already includes the tabs+walls
+  const geometry = mergeGeoms(parts);
   geometry.computeBoundingBox();
-  base.dispose();
-  stem.dispose();
+  for (const g of parts) g.dispose();
   return geometry;
 }
 
