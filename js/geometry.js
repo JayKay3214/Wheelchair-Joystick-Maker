@@ -294,37 +294,51 @@ function buildOvalBase(P) {
     }
   }
 
-  // ---- tab + wall prism on each side (L cross-section), sharing the oval edge line ----
+  // ---- tab + wall prism on each side, sharing the oval edge line ----
+  // Cross-section is an ordered point list from the inner-bottom around the outside to the
+  // inner-top; the closing edge (inner-top -> inner-bottom) is the shared oval edge (no face).
+  // A quarter-circle fillet optionally rounds the inner corner where the shelf meets the wall.
   if (hasWall) {
     const tabRows = zs.filter((z) => z >= -half - 1e-9 && z <= half + 1e-9);
+    const r = P.wallCurve, NARC = r > 0.05 ? 6 : 0;
     for (const sgn of [1, -1]) {
-      const OUT = [sgn, 0, 0], IN = [-sgn, 0, 0];
+      const INT = [sgn * (P.wallBandInner + P.tabOuter) / 2, (P.shelfTopY + P.wallTopY) / 2]; // point inside the wall
       const prof = (z) => {
         const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
-        const topE = em + P.halfThick, botE = em - P.halfThick;         // oval edge (shared, may rise at ends)
-        const topF = P.shelfTopY, botF = P.shelfBotY;                   // FLAT shelf / wall base level
-        return {
-          iT: [sgn * hw, topE, z], iB: [sgn * hw, botE, z],             // inner edge (shared w/ oval)
-          aT: [sgn * P.wallBandInner, topF, z],                         // flat-tab top / wall inner base
-          cT: [sgn * P.wallBandInner, P.wallTopY, z],                   // wall inner top
-          dT: [sgn * P.tabOuter, P.wallTopY, z],                        // wall outer top
-          oB: [sgn * P.tabOuter, botF, z],                              // outer tip bottom
-          fT: [sgn * P.tabOuter, topF, z],                              // outer tip at shelf-top level
-        };
+        const topE = em + P.halfThick, botE = em - P.halfThick; // oval edge (shared, may rise at ends)
+        const topF = P.shelfTopY;                               // FLAT shelf / wall base level
+        const pts = [];
+        pts.push([sgn * hw, botE]);                    // inner bottom (shared)
+        pts.push([sgn * P.tabOuter, P.shelfBotY]);     // outer bottom
+        pts.push([sgn * P.tabOuter, topF]);            // outer tip at shelf level
+        pts.push([sgn * P.tabOuter, P.wallTopY]);      // outer top
+        pts.push([sgn * P.wallBandInner, P.wallTopY]); // wall inner top
+        if (r > 0.05) {                                // rounded inner corner: down the wall, arc onto the shelf
+          pts.push([sgn * P.wallBandInner, topF + r]);
+          const cx = sgn * (P.wallBandInner - r), cy = topF + r;
+          for (let a = 1; a < NARC; a++) { const ang = (Math.PI / 2) * (a / NARC); pts.push([cx + sgn * r * Math.sin(ang), cy - r * Math.cos(ang)]); }
+          pts.push([sgn * (P.wallBandInner - r), topF]);
+        } else {
+          pts.push([sgn * P.wallBandInner, topF]);     // sharp inner corner
+        }
+        pts.push([sgn * hw, topE]);                    // inner top (shared)
+        return pts.map((q) => [q[0], q[1], z]);
       };
       for (let k = 0; k < tabRows.length - 1; k++) {
-        const p = prof(tabRows[k]), q = prof(tabRows[k + 1]);
-        quad(p.iT, p.aT, q.aT, q.iT, UP);   // flat tab top
-        quad(p.aT, p.cT, q.cT, q.aT, IN);   // wall inner face (vertical)
-        quad(p.cT, p.dT, q.dT, q.cT, UP);   // wall top
-        quad(p.fT, p.oB, q.oB, q.fT, OUT);  // outer tip face, tab portion (split at fT for cap match)
-        quad(p.dT, p.fT, q.fT, q.dT, OUT);  // outer tip face, wall portion
-        quad(p.oB, p.iB, q.iB, q.oB, DN);   // flat tab bottom
+        const A = prof(tabRows[k]), B = prof(tabRows[k + 1]), m = A.length;
+        for (let e = 0; e < m - 1; e++) {              // every edge except the closing inner edge (m-1 -> 0)
+          const p0 = A[e], p1 = A[e + 1];
+          let nx2 = p1[1] - p0[1], ny2 = -(p1[0] - p0[0]); // 2D outward normal, flipped away from the interior
+          if (((p0[0] + p1[0]) / 2 - INT[0]) * nx2 + ((p0[1] + p1[1]) / 2 - INT[1]) * ny2 < 0) { nx2 = -nx2; ny2 = -ny2; }
+          quad(p0, p1, B[e + 1], B[e], [nx2, ny2, 0]);
+        }
       }
       for (const cap of [[prof(tabRows[0]), -1], [prof(tabRows[tabRows.length - 1]), 1]]) {
-        const p = cap[0], out = [0, 0, cap[1]];
-        tri(p.iB, p.oB, p.fT, out); tri(p.iB, p.fT, p.aT, out); tri(p.iB, p.aT, p.iT, out); // tab body (aT kept on top edge)
-        tri(p.aT, p.fT, p.dT, out); tri(p.aT, p.dT, p.cT, out);                             // wall body
+        let poly = cap[0]; const out = [0, 0, cap[1]];
+        let a2 = 0; for (let i = 0; i < poly.length; i++) { const u = poly[i], v = poly[(i + 1) % poly.length]; a2 += u[0] * v[1] - v[0] * u[1]; }
+        if (a2 < 0) poly = poly.slice().reverse();     // triangulateShape wants CCW
+        const faces = THREE.ShapeUtils.triangulateShape(poly.map((q) => new THREE.Vector2(q[0], q[1])), []);
+        for (const f of faces) tri(poly[f[0]], poly[f[1]], poly[f[2]], out);
       }
     }
   }
