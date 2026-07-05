@@ -307,17 +307,17 @@ function buildOvalBase(P) {
       const prof = (z) => {
         const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
         const topE = em + P.halfThick, botE = em - P.halfThick; // oval edge (shared, may rise at ends)
-        // Shelf / wall base follow the widest-point base level at THIS depth: it droops front-to-back
-        // with Palm Rest (so the shelf stays attached to the base edge, no cutoff) but omits the
-        // side-bend rise (so it never curls up into the hand). wall top keeps a constant height above it.
-        const baseZ = gpOvalMid(P, P.halfW, z);
-        const topF = baseZ + P.halfThick, botF = baseZ - P.halfThick, wallTop = topF + P.wallHeight;
+        // Shelf TOP droops with the base edge at this depth (stays attached -> no cutoff). Wall TOP
+        // is flat (P.wallTopY). Tab BOTTOM is flat (P.shelfBotY) but clamped to keep >=5mm of tab so
+        // it never inverts under heavy droop -- this removes the drooping fang on the underside.
+        const topF = gpOvalMid(P, P.halfW, z) + P.halfThick;
+        const botF = Math.min(P.shelfBotY, topF - 5);
         const pts = [];
         pts.push([sgn * hw, botE]);                    // inner bottom (shared)
-        pts.push([sgn * P.tabOuter, botF]);            // outer bottom
+        pts.push([sgn * P.tabOuter, botF]);            // outer bottom (flat)
         pts.push([sgn * P.tabOuter, topF]);            // outer tip at shelf level
-        pts.push([sgn * P.tabOuter, wallTop]);         // outer top
-        pts.push([sgn * P.wallBandInner, wallTop]);    // wall inner top
+        pts.push([sgn * P.tabOuter, P.wallTopY]);      // outer top (flat)
+        pts.push([sgn * P.wallBandInner, P.wallTopY]); // wall inner top (flat)
         if (ry > 0.05) {                               // rounded inner corner: down the wall, arc onto the shelf
           pts.push([sgn * P.wallBandInner, topF + ry]); // fillet top, on the wall face (arc angle 0)
           const ccx = P.wallBandInner - rx, ccy = topF + ry; // arc centre (unsigned x)

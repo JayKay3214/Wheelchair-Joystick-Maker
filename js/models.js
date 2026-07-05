@@ -221,9 +221,12 @@ export function gpOvalShape(p) {
   P.wallThk = Math.max(2, Math.min(GPO_WALL_THK, P.tabOut - 1)); // fixed 8mm wall (auto-thinned if the tab is very short)
   P.tabOuter = P.halfW + P.tabOut;                    // outer tip of the tab / wall (|x|)
   P.wallBandInner = P.tabOuter - P.wallThk;           // inner face of the vertical wall
-  // The tab shelf + wall base sit at the widest-point base level (gpOvalMid(halfW, z), computed
-  // per-depth in geometry.js): it droops front-to-back with Palm Rest so the shelf stays attached
-  // to the base edge, but omits the side-bend rise so it never curls up into the hand.
+  // FLAT reference levels (the widest-point base height at z=0). The shelf TOP droops per-depth in
+  // geometry.js (so it stays attached to the base edge — no cutoff), but the wall TOP and the tab
+  // BOTTOM stay flat at these levels (so the wall top is level and the tab underside isn't a fang).
+  P.shelfTopY = (P.midCentre - P.sideBend) + P.halfThick;
+  P.shelfBotY = (P.midCentre - P.sideBend) - P.halfThick; // FLAT tab underside
+  P.wallTopY = P.shelfTopY + P.wallHeight;                // FLAT wall top
   // Inner-corner fillet, as a quarter-ELLIPSE so it can grow without widening the tab: the
   // horizontal reach is capped by the flat-shelf width (tabOut - wallThk); the vertical reach
   // (the slider) sweeps up the wall, capped only by the wall height. Equal at small values
