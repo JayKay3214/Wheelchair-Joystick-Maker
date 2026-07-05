@@ -95,27 +95,54 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
-// Top-surface height of the head at (x,z). The domed floor everywhere, raised to the flat
-// wall top inside the wall band. The wall's inner face is VERTICAL with a concave fillet
-// (radius `wallFillet`, the corner slider) only at its base where it meets the floor; the
-// front/back wall ends use a small FIXED transition so the slider affects nothing else.
+// Footprint half-width (x half-extent) at depth z: straight sides at `halfW`, with a rounded
+// corner of radius `frontCornerR` at the front (z = -halfD) and `backCornerR` at the back
+// (z = +halfD) — the top-down outline is a rounded rectangle with asymmetric corners.
+export function gpHalfWidthAt(P, z) {
+  const halfW = P.halfW, halfD = P.halfD;
+  if (P.frontCornerR > 0.01 && z < -halfD + P.frontCornerR) {
+    const dz = z - (-halfD + P.frontCornerR);
+    return (halfW - P.frontCornerR) + Math.sqrt(Math.max(0, P.frontCornerR * P.frontCornerR - dz * dz));
+  }
+  if (P.backCornerR > 0.01 && z > halfD - P.backCornerR) {
+    const dz = z - (halfD - P.backCornerR);
+    return (halfW - P.backCornerR) + Math.sqrt(Math.max(0, P.backCornerR * P.backCornerR - dz * dz));
+  }
+  return halfW;
+}
+
+// Top-surface height of the head at (x,z). The floor is a smooth palm-rest DOME (peaks in
+// the centre, falls to the edges) scaled by the "Palm Rest" slider. The wall top is a FLAT
+// fixed height so the walls stay flat/unaffected by the dome; the wall inner face is vertical
+// with a concave fillet at its base and the front/back ends use a small fixed transition.
 export function gpTopHeight(P, x, z) {
   const u = x / P.halfW, w = z / P.halfD;
-  const dome = Math.max(0, 1 - u * u) * Math.max(0, 1 - w * w);
-  const floorTop = P.B0 + P.baseThk + P.hump * dome;
+  // Palm-rest dome: peaks at the centre and falls to the side edges (1 - u^2). Along the depth
+  // the top stays FLAT near the centre and curves down MORE the closer you get to the edge
+  // (|w|^p — zero slope at the centre, steepest at the edge, so there is no convex lip). It is
+  // ASYMMETRIC: only a little droop toward the front (-w), a lot toward the back (+w).
+  const frontKeep = 0.75, backKeep = 0.05, p = 2.6;
+  const dp = 1 - (1 - (w <= 0 ? frontKeep : backKeep)) * Math.pow(Math.abs(w), p);
+  const floorTop = P.B0 + P.baseThk + P.hump * Math.max(0, 1 - u * u) * dp;
   if (P.wallHeight <= 0.01 || P.wallLen <= 0.01) return floorTop;
-  const ax = Math.abs(x), az = Math.abs(z);
-  // Depth: wall over the middle `wallLen`, with fixed near-sharp ends (NOT the corner slider).
-  const fEnd = Math.min(1.5, P.wallLen / 2 - 0.5);
-  const gz = 1 - smoothstep(P.wallLen / 2 - fEnd, P.wallLen / 2, az);
+  const ax = Math.abs(x);
+  // Walls are STRAIGHT and live only on the straight side region — never on the rounded
+  // corners. Centre them in that region and cap their length to it.
+  const straightLo = -P.halfD + P.frontCornerR, straightHi = P.halfD - P.backCornerR;
+  const wl = Math.min(P.wallLen, straightHi - straightLo);
+  if (wl < 1) return floorTop;
+  const zc = (straightLo + straightHi) / 2, zLo = zc - wl / 2, zHi = zc + wl / 2;
+  if (z <= zLo || z >= zHi) return floorTop;
+  const fEnd = Math.min(1.5, wl / 2 - 0.1);
+  const gz = Math.min(smoothstep(zLo, zLo + fEnd, z), 1 - smoothstep(zHi - fEnd, zHi, z));
   if (gz <= 0) return floorTop;
-  // Width: flat wall band -> vertical inner face at X0 -> concave fillet into the floor.
-  const X0 = P.halfW - P.wallThk, r = P.wallFillet;
-  let wallProfile; // height above the floor, 0 .. wallHeight
-  if (ax >= X0) wallProfile = P.wallHeight;
-  else if (r > 0.01 && ax >= X0 - r) { const d = ax - (X0 - r); wallProfile = r - Math.sqrt(Math.max(0, r * r - d * d)); }
-  else wallProfile = 0;
-  return floorTop + wallProfile * gz;
+  const X0 = P.halfW - P.wallThk, r = P.wallFillet; // straight wall band (fixed inner face)
+  const wallTopY = P.B0 + P.baseThk + P.wallHeight; // FLAT wall top, independent of the dome
+  let target;
+  if (ax >= X0) target = wallTopY;
+  else if (r > 0.01 && ax >= X0 - r) { const d = ax - (X0 - r); target = floorTop + (r - Math.sqrt(Math.max(0, r * r - d * d))); }
+  else target = floorTop;
+  return floorTop + (target - floorTop) * gz;
 }
 
 export function goalPostShape(p) {
@@ -124,13 +151,18 @@ export function goalPostShape(p) {
     halfD: p.baseLength / 2,
     B0: p.stemHeight,            // base underside sits on the stem top
     baseThk: GP_BASE_THK,
-    hump: p.hump,
+    hump: p.hump || 0,           // models without a hump slider get a flat floor
     wallHeight: p.wallHeight,
     wallThk: GP_WALL_THK,
     stemR: Math.max(p.stemDia / 2, 2),
     stemTopY: p.stemHeight + 4,  // pokes up into the base so the two solids fuse
   };
-  P.wallLen = Math.min(p.wallLength, p.baseLength); // never exceeds the base length
+  // Rounded-rectangle footprint corners (0 = square). Front small, back large by default.
+  P.frontCornerR = Math.max(0, Math.min(p.frontCornerR || 0, P.halfW - 1, P.halfD - 0.5));
+  P.backCornerR = Math.max(0, Math.min(p.backCornerR || 0, P.halfW - 1, P.halfD - 0.5));
+  const sumR = P.frontCornerR + P.backCornerR, maxSum = 2 * P.halfD - 1;
+  if (sumR > maxSum && sumR > 0) { const s = maxSum / sumR; P.frontCornerR *= s; P.backCornerR *= s; }
+  P.wallLen = Math.max(0, Math.min(p.wallLength, p.baseLength)); // never exceeds the base length
   // Inside-corner fillet radius (0 = sharp), clamped so the vertical inner face keeps some
   // height and the fillet stays on the floor side of the wall band.
   P.wallFillet = Math.max(0, Math.min(p.wallCorner, p.wallHeight - 0.5, P.halfW - P.wallThk - 1));
@@ -142,6 +174,54 @@ export function goalPostShape(p) {
   const NS = 90, top = [];
   for (let i = 0; i <= NS; i++) { const x = -P.halfW + (2 * P.halfW * i) / NS; top.push({ x, y: gpTopHeight(P, x, 0) }); }
   P.front = { parts: [[...top, { x: P.halfW, y: P.B0 }, { x: -P.halfW, y: P.B0 }]] };
+  return P;
+}
+
+// ---- Goal Post Experimental: oval "Pringles" saddle base -----------------------
+// The base is an OVAL (ellipse: wide left-right where the walls go, shorter front-to-back)
+// shaped like a Pringles chip: a constant-thickness slab whose mid-surface curves UP toward
+// the left/right (wall) ends and droops DOWN toward the front/back ends. The centre stays
+// fixed; the "Palm Rest" slider only sets how much the front/back droop. (Walls come later.)
+const GPO_SLAB_THK = 12;  // saddle slab thickness (mm)
+const GPO_SIDE_BEND = -4; // left/right (wall) ends bend DOWN slightly (negative = down)
+
+// Elliptical footprint half-width (x half-extent) at depth z; a small floor keeps the
+// front/back ends slightly rounded instead of collapsing to a degenerate point.
+export function gpOvalHalfWidth(P, z) {
+  const e = 1 - (z / P.halfD) * (z / P.halfD);
+  return e <= 0 ? 0.8 : Math.max(0.8, P.halfW * Math.sqrt(e));
+}
+
+// Saddle mid-surface height at (x,z): fixed centre, left/right bend down slightly, front/back
+// droop down (Palm Rest). Highest at the centre; convex, like a palm resting on a slight hump.
+export function gpOvalMid(P, x, z) {
+  const u = x / P.halfW, w = z / P.halfD;
+  return P.midCentre + P.sideBend * u * u - P.droop * w * w;
+}
+
+export function gpOvalShape(p) {
+  const P = {
+    halfW: p.baseWidth / 2,
+    halfD: p.baseLength / 2,
+    halfThick: GPO_SLAB_THK / 2,
+    sideBend: GPO_SIDE_BEND,
+    stemR: Math.max(p.stemDia / 2, 2),
+  };
+  // droop capped so the drooping front/back tips stay above the print bed.
+  P.droop = Math.max(0, Math.min(p.palmRest || 0, p.stemHeight - 3));
+  P.midCentre = p.stemHeight + P.halfThick; // centre-bottom sits at the stem top
+  P.stemTopY = p.stemHeight + 2;            // pokes into the base so the two solids fuse
+  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
+  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+
+  // Front-view (X-Y) slab cross-section at z=0 for the 2D editor (shows the up-curve).
+  const NS = 50, top = [], bot = [];
+  for (let i = 0; i <= NS; i++) {
+    const x = -P.halfW + (2 * P.halfW * i) / NS, m = gpOvalMid(P, x, 0);
+    top.push({ x, y: m + P.halfThick });
+    bot.push({ x, y: m - P.halfThick });
+  }
+  P.front = { parts: [[...top, ...bot.reverse()]] };
   return P;
 }
 
@@ -202,7 +282,8 @@ const ICON = {
   chincup: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 16 C6 22 34 22 34 16 C34 13 28 11 20 11 C12 11 6 13 6 16 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   carrot: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M11 9 L29 9 L24 30 L16 30 Z" stroke-width="2"/></svg>`,
   ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M14 6 L24 8 L21 27 L15 26 Z" stroke-width="2"/><rect class="stroke fill" x="13" y="26" width="7" height="9" rx="1.5" stroke-width="2"/></svg>`,
-  goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 21 C6 12 34 12 34 21 L34 25 L6 25 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="25" width="6" height="9" rx="1.5" stroke-width="2"/></svg>`,
+  goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 21 L29 21 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
+  goalpostexp: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
   tbar: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M4 14 C14 9 26 9 36 14 C26 18 14 18 4 14 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="16" width="6" height="18" rx="1.5" stroke-width="2"/></svg>`,
 };
 
@@ -372,18 +453,17 @@ const MODELS = [
 
   {
     id: "goalpost",
-    label: "Goal Posts",
+    label: "Goal Post",
     icon: ICON.goalpost,
-    // Not a solid of revolution: geometry.js builds it from goalPostShape() instead of
-    // revolving a profile. custom -> the 2D editor shows a static front view (no drag).
+    // Simpler goal post: a FLAT rectangular base (no hump) with the two raised side walls.
+    // Same builder as the experimental one; it just omits the hump slider (hump -> 0).
     smoothProfile: false,
     custom: true,
     geometryKind: "goalpost",
     shape2D: goalPostShape,
     schema: [
       { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 70 },
-      { key: "baseLength", label: "Base length", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
-      { key: "hump", label: "Top hump", min: 0, max: 25, step: 0.5, group: "shape", unit: "mm", def: 6 },
+      { key: "baseLength", label: "Base length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 5 },
       // Front-to-back length of the walls, capped to the base length via maxFn.
@@ -393,6 +473,27 @@ const MODELS = [
     // Placeholder profile so the store stays valid; the custom builder ignores it.
     buildOuterProfile(p) {
       const S = goalPostShape(p);
+      return [{ x: 0, y: S.stemTopY }, { x: S.stemR, y: 0, lockY: true }];
+    },
+  },
+
+  {
+    id: "goalpostexp",
+    label: "Goal Post Experimental",
+    icon: ICON.goalpostexp,
+    // Oval "Pringles" saddle base (walls hidden for now — work in progress).
+    smoothProfile: false,
+    custom: true,
+    geometryKind: "goalpostoval",
+    shape2D: gpOvalShape,
+    schema: [
+      { key: "baseWidth", label: "Base width", min: 40, max: 130, step: 1, group: "shape", unit: "mm", def: 84 },
+      { key: "baseLength", label: "Base length", min: 20, max: 90, step: 1, group: "shape", unit: "mm", def: 56 },
+      { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
+    ],
+    defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
+    buildOuterProfile(p) {
+      const S = gpOvalShape(p);
       return [{ x: 0, y: S.stemTopY }, { x: S.stemR, y: 0, lockY: true }];
     },
   },

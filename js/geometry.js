@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, tbarShape, tbarCenterY, tbarScale } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale } from "./models.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -168,15 +168,26 @@ function mergeGeoms(list) {
  * (down); the four rim strips are oriented per-quad to face away from the vertical axis.
  */
 function buildHead(P) {
-  const halfW = P.halfW, halfD = P.halfD;
-  const nx = Math.max(50, Math.min(120, Math.round(halfW * 2 * 1.3)));
-  const nz = Math.max(50, Math.min(120, Math.round(halfD * 2 * 1.3)));
+  const halfD = P.halfD;
+  const nx = Math.max(50, Math.min(120, Math.round(P.halfW * 2 * 1.3)));
+  const nz = Math.max(60, Math.min(140, Math.round(halfD * 2 * 1.6))); // extra z-res for the corner arcs
+  // Each z-row spans the footprint half-width at that depth (rounded-rectangle corners), so
+  // the grid is warped to the rounded outline while every row keeps nx+1 evenly-spaced columns.
+  const zAt = (j) => -halfD + (2 * halfD * j) / nz;
   const pos = [];
-  for (let i = 0; i <= nx; i++) { const x = -halfW + (2 * halfW * i) / nx;
-    for (let j = 0; j <= nz; j++) { const z = -halfD + (2 * halfD * j) / nz; pos.push(x, gpTopHeight(P, x, z), z); } }
+  for (let i = 0; i <= nx; i++) {
+    for (let j = 0; j <= nz; j++) {
+      const z = zAt(j), hw = gpHalfWidthAt(P, z), x = -hw + (2 * hw * i) / nx;
+      pos.push(x, gpTopHeight(P, x, z), z);
+    }
+  }
   const topV = (nx + 1) * (nz + 1);
-  for (let i = 0; i <= nx; i++) { const x = -halfW + (2 * halfW * i) / nx;
-    for (let j = 0; j <= nz; j++) { const z = -halfD + (2 * halfD * j) / nz; pos.push(x, P.B0, z); } }
+  for (let i = 0; i <= nx; i++) {
+    for (let j = 0; j <= nz; j++) {
+      const z = zAt(j), hw = gpHalfWidthAt(P, z), x = -hw + (2 * hw * i) / nx;
+      pos.push(x, P.B0, z);
+    }
+  }
   const id = (i, j) => i * (nz + 1) + j, bid = (i, j) => topV + i * (nz + 1) + j;
   const idx = [];
   for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
@@ -215,6 +226,61 @@ function buildGoalPost(params, opts = {}) {
   const geometry = mergeGeoms([head, stem]);
   geometry.computeBoundingBox();
   head.dispose();
+  stem.dispose();
+  return geometry;
+}
+
+/** Goal Post Experimental: an oval "Pringles" saddle slab (curved top AND bottom over an
+ * elliptical footprint) fused with a bored central stem. Winding is correct by construction:
+ * top grid wound +Y, bottom -Y, rim strips oriented per-quad away from the vertical axis. */
+function buildOvalBase(P) {
+  const halfD = P.halfD;
+  const nx = Math.max(40, Math.min(100, Math.round(P.halfW * 2 * 1.4)));
+  const nz = Math.max(50, Math.min(130, Math.round(halfD * 2 * 1.7)));
+  const zAt = (j) => -halfD + (2 * halfD * j) / nz;
+  const pos = [];
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+    const z = zAt(j), hw = gpOvalHalfWidth(P, z), x = -hw + (2 * hw * i) / nx;
+    pos.push(x, gpOvalMid(P, x, z) + P.halfThick, z); // top surface
+  }
+  const topV = (nx + 1) * (nz + 1);
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+    const z = zAt(j), hw = gpOvalHalfWidth(P, z), x = -hw + (2 * hw * i) / nx;
+    pos.push(x, gpOvalMid(P, x, z) - P.halfThick, z); // bottom surface
+  }
+  const id = (i, j) => i * (nz + 1) + j, bid = (i, j) => topV + i * (nz + 1) + j;
+  const idx = [];
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    idx.push(id(i, j), id(i + 1, j + 1), id(i + 1, j), id(i, j), id(i, j + 1), id(i + 1, j + 1));       // top (+Y)
+    idx.push(bid(i, j), bid(i + 1, j), bid(i + 1, j + 1), bid(i, j), bid(i + 1, j + 1), bid(i, j + 1)); // bottom (-Y)
+  }
+  const at = (a) => [pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]];
+  const addRim = (t0, t1, b0, b1) => {
+    const A = at(t0), C = at(b0), D = at(b1);
+    const ux = C[0] - A[0], uy = C[1] - A[1], uz = C[2] - A[2];
+    const wx = D[0] - A[0], wy = D[1] - A[1], wz = D[2] - A[2];
+    const nx2 = uy * wz - uz * wy, nz2 = ux * wy - uy * wx;
+    const cx = (A[0] + at(t1)[0] + C[0] + D[0]) / 4, cz = (A[2] + at(t1)[2] + C[2] + D[2]) / 4;
+    if (nx2 * cx + nz2 * cz >= 0) idx.push(t0, b0, b1, t0, b1, t1);
+    else idx.push(t0, b1, b0, t0, t1, b1);
+  };
+  for (let i = 0; i < nx; i++) { addRim(id(i, 0), id(i + 1, 0), bid(i, 0), bid(i + 1, 0)); addRim(id(i, nz), id(i + 1, nz), bid(i, nz), bid(i + 1, nz)); }
+  for (let j = 0; j < nz; j++) { addRim(id(0, j), id(0, j + 1), bid(0, j), bid(0, j + 1)); addRim(id(nx, j), id(nx, j + 1), bid(nx, j), bid(nx, j + 1)); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildGoalPostOval(params, opts = {}) {
+  const segments = Math.min(opts.segments || RADIAL_SEGMENTS, 72);
+  const P = gpOvalShape(params);
+  const base = buildOvalBase(P);
+  const stem = buildStem(P, segments);
+  const geometry = mergeGeoms([base, stem]);
+  geometry.computeBoundingBox();
+  base.dispose();
   stem.dispose();
   return geometry;
 }
@@ -286,6 +352,7 @@ function buildTBar(params, opts = {}) {
  */
 export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
+  if (model.geometryKind === "goalpostoval") return buildGoalPostOval(params, opts);
   if (model.geometryKind === "tbar") return buildTBar(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
   const rounded = roundCorners(profilePoints, params.edgeRound || 0);

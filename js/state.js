@@ -39,6 +39,7 @@ export class Store {
     this.modelId = id;
     this.model_ = getModel(id);
     this.params = defaultParams(this.model_);
+    this._clampDynamic(); // defaults may exceed a dynamic ceiling (e.g. wall length vs corners)
     this.rebuildProfile();
     if (!silent) this._emit("model");
   }
