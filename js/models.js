@@ -515,7 +515,7 @@ const MODELS = [
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
       { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
-      { key: "tabStick", label: "Tab stick-out", min: 4, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
+      { key: "tabStick", label: "Tab stick-out", min: 9, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
       { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, maxFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
