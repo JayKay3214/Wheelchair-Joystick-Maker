@@ -221,7 +221,11 @@ export function gpOvalShape(p) {
   P.tabOut = GPO_TAB_OUT;
   P.tabOuter = P.halfW + P.tabOut;                    // outer tip of the tab / wall (|x|)
   P.wallBandInner = P.tabOuter - P.wallThk;           // inner face of the vertical wall
-  P.wallTopY = (P.midCentre - P.sideBend) + P.halfThick + P.wallHeight; // FLAT wall top
+  // The tab shelf + wall base sit at a FLAT level (the oval's lowest widest-point height), so the
+  // shelf never curls up toward the ends even when Side bend > Palm Rest. wall top = shelf + height.
+  P.shelfTopY = (P.midCentre - P.sideBend) + P.halfThick;
+  P.shelfBotY = (P.midCentre - P.sideBend) - P.halfThick;
+  P.wallTopY = P.shelfTopY + P.wallHeight;            // FLAT wall top
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
   P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
 

@@ -301,14 +301,15 @@ function buildOvalBase(P) {
       const OUT = [sgn, 0, 0], IN = [-sgn, 0, 0];
       const prof = (z) => {
         const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
-        const top = em + P.halfThick, bot = em - P.halfThick;
+        const topE = em + P.halfThick, botE = em - P.halfThick;         // oval edge (shared, may rise at ends)
+        const topF = P.shelfTopY, botF = P.shelfBotY;                   // FLAT shelf / wall base level
         return {
-          iT: [sgn * hw, top, z], iB: [sgn * hw, bot, z],                 // inner edge (shared w/ oval)
-          aT: [sgn * P.wallBandInner, top, z],                           // flat-tab top / wall inner base
-          cT: [sgn * P.wallBandInner, P.wallTopY, z],                    // wall inner top
-          dT: [sgn * P.tabOuter, P.wallTopY, z],                         // wall outer top
-          oB: [sgn * P.tabOuter, bot, z],                                // outer tip bottom
-          fT: [sgn * P.tabOuter, top, z],                                // outer tip at tab-top level
+          iT: [sgn * hw, topE, z], iB: [sgn * hw, botE, z],             // inner edge (shared w/ oval)
+          aT: [sgn * P.wallBandInner, topF, z],                         // flat-tab top / wall inner base
+          cT: [sgn * P.wallBandInner, P.wallTopY, z],                   // wall inner top
+          dT: [sgn * P.tabOuter, P.wallTopY, z],                        // wall outer top
+          oB: [sgn * P.tabOuter, botF, z],                              // outer tip bottom
+          fT: [sgn * P.tabOuter, topF, z],                              // outer tip at shelf-top level
         };
       };
       for (let k = 0; k < tabRows.length - 1; k++) {
