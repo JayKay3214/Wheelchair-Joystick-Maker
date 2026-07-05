@@ -300,7 +300,9 @@ function buildOvalBase(P) {
   // A quarter-circle fillet optionally rounds the inner corner where the shelf meets the wall.
   if (hasWall) {
     const tabRows = zs.filter((z) => z >= -half - 1e-9 && z <= half + 1e-9);
-    const r = P.wallCurve, NARC = r > 0.05 ? 6 : 0;
+    // quarter-ellipse fillet: rx across the shelf, ry up the wall. Segments scale with the larger
+    // radius (~0.8mm each) so a big sweep stays smooth, not faceted.
+    const rx = P.wallCurveX, ry = P.wallCurve, NARC = ry > 0.05 ? Math.max(6, Math.min(64, Math.round(ry * 1.9))) : 0;
     for (const sgn of [1, -1]) {
       const prof = (z) => {
         const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
@@ -312,11 +314,11 @@ function buildOvalBase(P) {
         pts.push([sgn * P.tabOuter, topF]);            // outer tip at shelf level
         pts.push([sgn * P.tabOuter, P.wallTopY]);      // outer top
         pts.push([sgn * P.wallBandInner, P.wallTopY]); // wall inner top
-        if (r > 0.05) {                                // rounded inner corner: down the wall, arc onto the shelf
-          pts.push([sgn * P.wallBandInner, topF + r]); // fillet top, on the wall face (arc angle 0)
-          const ccx = P.wallBandInner - r, ccy = topF + r; // arc centre (unsigned x)
-          for (let a = 1; a < NARC; a++) { const th = -(Math.PI / 2) * (a / NARC); pts.push([sgn * (ccx + r * Math.cos(th)), ccy + r * Math.sin(th)]); }
-          pts.push([sgn * (P.wallBandInner - r), topF]); // fillet bottom, on the shelf (arc angle -90)
+        if (ry > 0.05) {                               // rounded inner corner: down the wall, arc onto the shelf
+          pts.push([sgn * P.wallBandInner, topF + ry]); // fillet top, on the wall face (arc angle 0)
+          const ccx = P.wallBandInner - rx, ccy = topF + ry; // arc centre (unsigned x)
+          for (let a = 1; a < NARC; a++) { const th = -(Math.PI / 2) * (a / NARC); pts.push([sgn * (ccx + rx * Math.cos(th)), ccy + ry * Math.sin(th)]); }
+          pts.push([sgn * (P.wallBandInner - rx), topF]); // fillet bottom, on the shelf (arc angle -90)
         } else {
           pts.push([sgn * P.wallBandInner, topF]);     // sharp inner corner
         }

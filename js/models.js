@@ -226,9 +226,12 @@ export function gpOvalShape(p) {
   P.shelfTopY = (P.midCentre - P.sideBend) + P.halfThick;
   P.shelfBotY = (P.midCentre - P.sideBend) - P.halfThick;
   P.wallTopY = P.shelfTopY + P.wallHeight;            // FLAT wall top
-  // Inner-corner fillet radius (rounds where the shelf meets the wall). Capped by the wall height
-  // and the flat-shelf width (tabOut - wallThk) so the arc always fits.
-  P.wallCurve = Math.max(0, Math.min(p.wallCorner || 0, P.wallHeight - 0.5, P.tabOut - P.wallThk - 0.3));
+  // Inner-corner fillet, as a quarter-ELLIPSE so it can grow without widening the tab: the
+  // horizontal reach is capped by the flat-shelf width (tabOut - wallThk); the vertical reach
+  // (the slider) sweeps up the wall, capped only by the wall height. Equal at small values
+  // (a normal round), taller-than-wide as the slider increases.
+  P.wallCurve = Math.max(0, Math.min(p.wallCorner || 0, P.wallHeight - 0.5));            // vertical reach (ry)
+  P.wallCurveX = Math.max(0, Math.min(P.wallCurve, P.tabOut - P.wallThk - 0.3));          // horizontal reach (rx)
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
   P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
 
@@ -511,7 +514,7 @@ const MODELS = [
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
       { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
-      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 3.7, step: 0.1, group: "shape", unit: "mm", def: 2, maxFn: (p) => Math.min(3.7, p.wallHeight - 0.5) },
+      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, maxFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {
