@@ -302,7 +302,6 @@ function buildOvalBase(P) {
     const tabRows = zs.filter((z) => z >= -half - 1e-9 && z <= half + 1e-9);
     const r = P.wallCurve, NARC = r > 0.05 ? 6 : 0;
     for (const sgn of [1, -1]) {
-      const INT = [sgn * (P.wallBandInner + P.tabOuter) / 2, (P.shelfTopY + P.wallTopY) / 2]; // point inside the wall
       const prof = (z) => {
         const hw = gpOvalHalfWidth(P, z), em = gpOvalMid(P, sgn * hw, z);
         const topE = em + P.halfThick, botE = em - P.halfThick; // oval edge (shared, may rise at ends)
@@ -314,10 +313,10 @@ function buildOvalBase(P) {
         pts.push([sgn * P.tabOuter, P.wallTopY]);      // outer top
         pts.push([sgn * P.wallBandInner, P.wallTopY]); // wall inner top
         if (r > 0.05) {                                // rounded inner corner: down the wall, arc onto the shelf
-          pts.push([sgn * P.wallBandInner, topF + r]);
-          const cx = sgn * (P.wallBandInner - r), cy = topF + r;
-          for (let a = 1; a < NARC; a++) { const ang = (Math.PI / 2) * (a / NARC); pts.push([cx + sgn * r * Math.sin(ang), cy - r * Math.cos(ang)]); }
-          pts.push([sgn * (P.wallBandInner - r), topF]);
+          pts.push([sgn * P.wallBandInner, topF + r]); // fillet top, on the wall face (arc angle 0)
+          const ccx = P.wallBandInner - r, ccy = topF + r; // arc centre (unsigned x)
+          for (let a = 1; a < NARC; a++) { const th = -(Math.PI / 2) * (a / NARC); pts.push([sgn * (ccx + r * Math.cos(th)), ccy + r * Math.sin(th)]); }
+          pts.push([sgn * (P.wallBandInner - r), topF]); // fillet bottom, on the shelf (arc angle -90)
         } else {
           pts.push([sgn * P.wallBandInner, topF]);     // sharp inner corner
         }
@@ -328,9 +327,8 @@ function buildOvalBase(P) {
         const A = prof(tabRows[k]), B = prof(tabRows[k + 1]), m = A.length;
         for (let e = 0; e < m - 1; e++) {              // every edge except the closing inner edge (m-1 -> 0)
           const p0 = A[e], p1 = A[e + 1];
-          let nx2 = p1[1] - p0[1], ny2 = -(p1[0] - p0[0]); // 2D outward normal, flipped away from the interior
-          if (((p0[0] + p1[0]) / 2 - INT[0]) * nx2 + ((p0[1] + p1[1]) / 2 - INT[1]) * ny2 < 0) { nx2 = -nx2; ny2 = -ny2; }
-          quad(p0, p1, B[e + 1], B[e], [nx2, ny2, 0]);
+          // outward normal from the consistent profile winding (CCW for sgn +1, mirrored CW for -1)
+          quad(p0, p1, B[e + 1], B[e], [sgn * (p1[1] - p0[1]), sgn * (p0[0] - p1[0]), 0]);
         }
       }
       for (const cap of [[prof(tabRows[0]), -1], [prof(tabRows[tabRows.length - 1]), 1]]) {
