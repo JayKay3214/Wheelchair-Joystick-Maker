@@ -182,8 +182,7 @@ export function goalPostShape(p) {
 // shaped like a Pringles chip: a constant-thickness slab whose mid-surface curves UP toward
 // the left/right (wall) ends and droops DOWN toward the front/back ends. The centre stays
 // fixed; the "Palm Rest" slider only sets how much the front/back droop. (Walls come later.)
-const GPO_SLAB_THK = 12;  // saddle slab thickness (mm)
-const GPO_SIDE_BEND = -4; // left/right (wall) ends bend DOWN slightly (negative = down)
+const GPO_SLAB_THK = 12; // saddle slab thickness (mm)
 
 // Elliptical footprint half-width (x half-extent) at depth z; a small floor keeps the
 // front/back ends slightly rounded instead of collapsing to a degenerate point.
@@ -192,11 +191,11 @@ export function gpOvalHalfWidth(P, z) {
   return e <= 0 ? 0.8 : Math.max(0.8, P.halfW * Math.sqrt(e));
 }
 
-// Saddle mid-surface height at (x,z): fixed centre, left/right bend down slightly, front/back
-// droop down (Palm Rest). Highest at the centre; convex, like a palm resting on a slight hump.
+// Saddle mid-surface height at (x,z): fixed centre, left/right bend DOWN by `sideBend`,
+// front/back droop DOWN by `droop` (Palm Rest). Highest at the centre (convex).
 export function gpOvalMid(P, x, z) {
   const u = x / P.halfW, w = z / P.halfD;
-  return P.midCentre + P.sideBend * u * u - P.droop * w * w;
+  return P.midCentre - P.sideBend * u * u - P.droop * w * w;
 }
 
 export function gpOvalShape(p) {
@@ -204,11 +203,11 @@ export function gpOvalShape(p) {
     halfW: p.baseWidth / 2,
     halfD: p.baseLength / 2,
     halfThick: GPO_SLAB_THK / 2,
-    sideBend: GPO_SIDE_BEND,
     stemR: Math.max(p.stemDia / 2, 2),
   };
-  // droop capped so the drooping front/back tips stay above the print bed.
+  // droop (front/back) and side bend (left/right) both capped so the low edges stay above bed.
   P.droop = Math.max(0, Math.min(p.palmRest || 0, p.stemHeight - 3));
+  P.sideBend = Math.max(0, Math.min(p.sideBend || 0, p.stemHeight - 3));
   P.midCentre = p.stemHeight + P.halfThick; // centre-bottom sits at the stem top
   P.stemTopY = p.stemHeight + 2;            // pokes into the base so the two solids fuse
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
@@ -490,6 +489,7 @@ const MODELS = [
       { key: "baseWidth", label: "Base width", min: 40, max: 130, step: 1, group: "shape", unit: "mm", def: 84 },
       { key: "baseLength", label: "Base length", min: 20, max: 90, step: 1, group: "shape", unit: "mm", def: 56 },
       { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
+      { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {
