@@ -217,8 +217,8 @@ export function gpOvalShape(p) {
   // straight vertical wall at the tab's outer tip.
   P.wallHeight = p.wallHeight || 0;
   P.wallLen = Math.max(0, Math.min(p.wallLength || 0, p.baseLength));
-  P.wallThk = GPO_WALL_THK;
-  P.tabOut = GPO_TAB_OUT;
+  P.tabOut = Math.max(2, p.tabStick ?? GPO_TAB_OUT);  // how far the tab juts past the oval edge
+  P.wallThk = Math.max(2, Math.min(p.wallThick ?? GPO_WALL_THK, P.tabOut - 1)); // wall X-thickness (leaves >=1mm shelf)
   P.tabOuter = P.halfW + P.tabOut;                    // outer tip of the tab / wall (|x|)
   P.wallBandInner = P.tabOuter - P.wallThk;           // inner face of the vertical wall
   // The tab shelf + wall base sit at a FLAT level (the oval's lowest widest-point height), so the
@@ -514,6 +514,8 @@ const MODELS = [
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
       { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
+      { key: "tabStick", label: "Tab stick-out", min: 4, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
+      { key: "wallThick", label: "Wall thickness", min: 3, max: 22, step: 0.5, group: "shape", unit: "mm", def: 8, maxFn: (p) => Math.max(3, p.tabStick - 2) },
       { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, maxFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
