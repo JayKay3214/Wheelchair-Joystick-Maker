@@ -428,29 +428,36 @@ function buildTBar(params, opts = {}) {
  * so LatheGeometry yields a watertight, manifold solid — no CSG.
  * Non-revolution models (e.g. Goal Posts, T-Bar) branch to their own builder.
  */
+/**
+ * The closed 2D (radius, y) cross-section that a round model revolves — the rounded/smoothed
+ * outer silhouette plus the blind bore. First point (0, topY) and last (0, boreCeil or 0) lie on
+ * the axis, so revolving it is watertight. Shared by the mesh builder AND the analytic STEP
+ * exporter so both revolve the exact same profile. Returns null for non-revolution models.
+ */
+export function revolutionSection(model, params, profilePoints) {
+  if (model.geometryKind === "goalpost" || model.geometryKind === "goalpostoval" || model.geometryKind === "tbar") return null;
+  const rounded = roundCorners(profilePoints, params.edgeRound || 0);
+  const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;
+  const outer = dedupe(outerRaw);
+  const topY = outer[0].y;
+  const stemR = Math.max(outer[outer.length - 1].x, 0.5);
+  const boreR = Math.min(Math.max(params.boreDia / 2, 0.4), stemR - 1.2);
+  const boreCeil = Math.min(Math.max(params.boreDepth, 2), topY - 3);
+  const hasBore = boreR > 0.4;
+  const section = outer.map((p) => ({ x: Math.max(0, p.x), y: p.y }));
+  if (hasBore) section.push({ x: boreR, y: 0 }, { x: boreR, y: boreCeil }, { x: 0, y: boreCeil });
+  else section.push({ x: 0, y: 0 });
+  return { section, topY, stemR, boreR, boreCeil, hasBore, outerLen: outer.length };
+}
+
 export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
   if (model.geometryKind === "goalpostoval") return buildGoalPostOval(params, opts);
   if (model.geometryKind === "tbar") return buildTBar(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
-  const rounded = roundCorners(profilePoints, params.edgeRound || 0);
-  const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;
-  const outer = dedupe(outerRaw);
-
-  const topY = outer[0].y;
-  const stemR = Math.max(outer[outer.length - 1].x, 0.5);
-
-  const boreR = Math.min(Math.max(params.boreDia / 2, 0.4), stemR - 1.2);
-  const boreCeil = Math.min(Math.max(params.boreDepth, 2), topY - 3);
-
-  const section = outer.map((p) => new THREE.Vector2(Math.max(0, p.x), p.y));
-  if (boreR > 0.4) {
-    section.push(new THREE.Vector2(boreR, 0));
-    section.push(new THREE.Vector2(boreR, boreCeil));
-    section.push(new THREE.Vector2(0, boreCeil));
-  } else {
-    section.push(new THREE.Vector2(0, 0));
-  }
+  const sec = revolutionSection(model, params, profilePoints);
+  const section = sec.section.map((p) => new THREE.Vector2(p.x, p.y));
+  const outer = { length: sec.outerLen };
 
   const geometry = new THREE.LatheGeometry(section, segments, 0, Math.PI * 2);
 

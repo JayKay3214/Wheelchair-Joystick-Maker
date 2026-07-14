@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
+import { revolutionSection, buildKnobGeometry, STEP_SEGMENTS } from "./geometry.js";
 
 /**
  * Export the current geometry to STL (binary) or OBJ.
@@ -191,7 +192,112 @@ export function buildSTEP(sourceGeometry, name) {
   return header + lines.join("\n") + "\n" + footer;
 }
 
-export function exportSTEP(sourceGeometry, name) {
-  const text = buildSTEP(sourceGeometry, name);
+// ---- STEP (analytic B-rep for solids of revolution) ---------------------------
+// The round models are a revolved (radius, y) profile, so emit REAL analytic surfaces
+// (plane / cylinder / cone) + full-circle edges instead of triangles: tiny files, truly
+// round, editable in CAD. Built Z-up (axis = Z, bore facing -Z) to match the mesh export.
+// Verified against OpenCASCADE (valid solid, exact volume). No pcurves needed — the importer
+// reconstructs them; only the PRODUCT/SHAPE_DEFINITION chain + a closed shell are required.
+
+function stepReal(x) {
+  if (Math.abs(x) < 1e-12) x = 0;
+  let s = x.toFixed(9).replace(/0+$/, "");     // STEP reals need a '.' and no lowercase sci-notation
+  if (s === "" || s === "-" || s === "-.") s = "0.";
+  if (!s.includes(".")) s += ".";
+  return s;
+}
+
+function buildSTEPAnalytic(section, name) {
+  const pts = section.map((p) => [p.x, p.y]); // (radius, height=z); axis is Z
+  let id = 0;
+  const lines = [];
+  const put = (s) => { id++; lines.push(`#${id}=${s};`); return `#${id}`; };
+  const P = (x, y, z) => put(`CARTESIAN_POINT('',(${stepReal(x)},${stepReal(y)},${stepReal(z)}))`);
+  const D = (x, y, z) => put(`DIRECTION('',(${stepReal(x)},${stepReal(y)},${stepReal(z)}))`);
+  const appCtx = put("APPLICATION_CONTEXT('automotive design')");
+  put(`APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,${appCtx})`);
+  const prodCtx = put(`PRODUCT_CONTEXT('',${appCtx},'mechanical')`);
+  const product = put(`PRODUCT('${name}','${name}','',(${prodCtx}))`);
+  const pdf = put(`PRODUCT_DEFINITION_FORMATION('','',${product})`);
+  const pdCtx = put(`PRODUCT_DEFINITION_CONTEXT('part definition',${appCtx},'design')`);
+  const pd = put(`PRODUCT_DEFINITION('design','',${pdf},${pdCtx})`);
+  const pds = put(`PRODUCT_DEFINITION_SHAPE('','',${pd})`);
+  put(`PRODUCT_RELATED_PRODUCT_CATEGORY('part','',(${product}))`);
+  const lu = put("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))");
+  const au = put("(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))");
+  const su = put("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())");
+  const un = put(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-06),${lu},'','')`);
+  const ctx = put(`(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((${un}))GLOBAL_UNIT_ASSIGNED_CONTEXT((${lu},${au},${su}))REPRESENTATION_CONTEXT('',''))`);
+  const Zp = D(0, 0, 1), Zn = D(0, 0, -1), Xd = D(1, 0, 0);
+  const a2p = (z, axis) => put(`AXIS2_PLACEMENT_3D('',${P(0, 0, z)},${axis},${Xd})`);
+  const n = pts.length;
+  const circ = new Map(); // one full-circle edge per profile vertex (r>0), shared by both adjacent faces
+  const circleAt = (i) => {
+    if (circ.has(i)) return circ.get(i);
+    const rr = pts[i][0], zz = pts[i][1];
+    const c = put(`CIRCLE('',${a2p(zz, Zp)},${stepReal(rr)})`);
+    const v = put(`VERTEX_POINT('',${P(rr, 0, zz)})`);
+    const e = put(`EDGE_CURVE('',${v},${v},${c},.T.)`);
+    circ.set(i, e); return e;
+  };
+  const bound = (edge, outer) => {
+    const lp = put(`EDGE_LOOP('',(${put(`ORIENTED_EDGE('',*,*,${edge},.T.)`)}))`);
+    return put(`${outer ? "FACE_OUTER_BOUND" : "FACE_BOUND"}('',${lp},.T.)`);
+  };
+  let area = 0; // winding of the (r,z) profile picks the outward side of the flat faces
+  for (let i = 0; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; area += a[0] * b[1] - b[0] * a[1]; }
+  const cw = area < 0;
+  const faces = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const r0 = pts[i][0], z0 = pts[i][1], r1 = pts[j][0], z1 = pts[j][1];
+    if (Math.abs(r0) < 1e-9 && Math.abs(r1) < 1e-9) continue;          // segment on the axis -> no face
+    if (Math.abs(z1 - z0) < 1e-9) {                                    // horizontal -> PLANE (disk or annulus)
+      const axis = ((r1 > r0) !== cw) ? Zp : Zn;
+      const pl = put(`PLANE('',${a2p(z0, axis)})`);
+      const bnds = [bound(circleAt(r0 >= r1 ? i : j), true)];
+      if (Math.min(r0, r1) > 1e-9) bnds.push(bound(circleAt(r0 >= r1 ? j : i), false));
+      faces.push(put(`ADVANCED_FACE('',(${bnds.join(",")}),${pl},.T.)`));
+    } else if (Math.abs(r1 - r0) < 1e-9) {                            // vertical -> CYLINDER
+      const cyl = put(`CYLINDRICAL_SURFACE('',${a2p(Math.min(z0, z1), Zp)},${stepReal(r0)})`);
+      faces.push(put(`ADVANCED_FACE('',(${bound(circleAt(i), true)},${bound(circleAt(j), false)}),${cyl},.T.)`));
+    } else if (Math.abs(r0) < 1e-9 || Math.abs(r1) < 1e-9) {          // slanted from the axis -> CONE to an apex
+      let za, rb, zb, ib;
+      if (Math.abs(r0) < 1e-9) { za = z0; rb = r1; zb = z1; ib = j; } else { za = z1; rb = r0; zb = z0; ib = i; }
+      const cone = put(`CONICAL_SURFACE('',${a2p(za, zb > za ? Zp : Zn)},0.,${stepReal(Math.atan(rb / Math.abs(zb - za)))})`);
+      faces.push(put(`ADVANCED_FACE('',(${bound(circleAt(ib), true)}),${cone},.T.)`));
+    } else {                                                          // slanted frustum -> CONE (both radii > 0)
+      const za = z0 - r0 * (z1 - z0) / (r1 - r0);
+      const cone = put(`CONICAL_SURFACE('',${a2p(za, z0 > za ? Zp : Zn)},0.,${stepReal(Math.atan(Math.abs(r0) / Math.abs(z0 - za)))})`);
+      faces.push(put(`ADVANCED_FACE('',(${bound(circleAt(i), true)},${bound(circleAt(j), false)}),${cone},.T.)`));
+    }
+  }
+  const shell = put(`CLOSED_SHELL('',(${faces.join(",")}))`);
+  const solid = put(`MANIFOLD_SOLID_BREP('${name}',${shell})`);
+  const sr = put(`ADVANCED_BREP_SHAPE_REPRESENTATION('${name}',(${solid}),${ctx})`);
+  put(`SHAPE_DEFINITION_REPRESENTATION(${pds},${sr})`);
+  const now = new Date().toISOString();
+  const header =
+    `ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Wheelchair joystick handle - analytic solid'),'2;1');\n` +
+    `FILE_NAME('${name}.step','${now}',(''),(''),'Joystick Maker','',' ');\n` +
+    `FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\nENDSEC;\nDATA;\n`;
+  return header + lines.join("\n") + "\nENDSEC;\nEND-ISO-10303-21;\n";
+}
+
+/**
+ * Analytic B-rep for the solids of revolution; faceted mesh B-rep for the freeform models
+ * (Goal Posts, T-Bar) and the tilted (sheared) I-Handle. Either way the button just works.
+ */
+export function exportSTEP(model, params, profilePoints, name) {
+  const sec = revolutionSection(model, params, profilePoints);
+  const tilted = model.tiltKey && params[model.tiltKey] > 0;
+  let text;
+  if (sec && !tilted) {
+    text = buildSTEPAnalytic(sec.section, name);
+  } else {
+    const geo = buildKnobGeometry(model, params, profilePoints, { segments: STEP_SEGMENTS });
+    text = buildSTEP(geo, name);
+    geo.dispose();
+  }
   download(new Blob([text], { type: "application/step" }), `${name}.step`);
 }

@@ -3,7 +3,7 @@ import { Store } from "./state.js";
 import { UI } from "./ui.js";
 import { ProfileEditor } from "./profileEditor.js";
 import * as THREE from "three";
-import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
+import { buildKnobMesh, meshDimensions, material } from "./geometry.js";
 import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
 
 const store = new Store();
@@ -68,12 +68,11 @@ document.getElementById("export-step").addEventListener("click", (e) => {
   const label = btn.textContent;
   btn.textContent = "Building…";
   btn.disabled = true;
-  // Coarser facets keep the STEP file manageable; defer so the label repaints.
+  // Analytic B-rep for round models, faceted fallback for freeform — the exporter decides.
+  // Defer so the "Building…" label repaints first.
   requestAnimationFrame(() => {
     try {
-      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS });
-      exportSTEP(geo, fileName());
-      geo.dispose();
+      exportSTEP(store.model, store.params, store.profilePoints, fileName());
     } finally {
       btn.textContent = label;
       btn.disabled = false;
