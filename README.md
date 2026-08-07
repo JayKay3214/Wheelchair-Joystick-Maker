@@ -40,7 +40,12 @@ Every handle has a configurable round bore at the base:
 
 **Always print a test fit first** and adjust the diameter ±0.1–0.3 mm to suit your printer and the
 desired friction. Units default to millimetres (the 3D-printing standard); a mm/inch toggle changes the
-on-screen readouts only.
+on-screen readouts, and the unit the fit tester's plate is marked in. Exported geometry is always mm,
+whichever unit is on screen.
+
+Setting **Hole depth** to 0 gives a solid handle with no mounting hole. A shape with no room for a
+bore — a Goal Post with the stem wound right down, say — reports 0 as well, rather than claiming a
+depth it hasn't got.
 
 ### Bore fit tester
 
@@ -54,7 +59,7 @@ to 6.70 and you get:
 
 ```
         6.30   6.40   6.50
-        6.60  [6.70]  6.80         53.8 x 63.3 x 8.6 mm
+        6.60  [6.70]  6.80         53.8 x 63.3 mm, 8 mm thick
         6.90   7.00   7.10
 ```
 
@@ -64,7 +69,10 @@ to 6.70 and you get:
 - The target is seeded from whatever Hole diameter your handle currently has, and **Back to handle**
   restores that handle untouched — style, sliders and profile drags included.
 - The holes are facetted exactly like a real handle bore, so the fit you measure is the fit you get.
-- Exports as `bore-test_6.30-7.10_step0.10.stl`, so a folder of coupons stays readable.
+- The labels follow the mm/inch toggle — in inches the same plate reads `0.248 … 0.280`, at three
+  decimals so no two holes share a number.
+- Exports as `bore-test_6.30-7.10mm_step0.10.stl` (or `bore-test_0.248-0.280in.stl` in inches), so a
+  folder of coupons stays readable.
 
 Print it, push each hole onto your controller's stem, and type the number that grips the way you want
 into **Hole diameter**.

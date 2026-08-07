@@ -39,7 +39,10 @@ const BORE_PARAMS = [
   // NOT as far as the current stem allows. Asking for a deep hole is how you tell the app
   // to grow the stem, so the slider has to let you ask; the store then raises the stem to
   // match. Capping at the current stem would make that unreachable.
-  { key: "boreDepth", label: "Hole depth", min: 4, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16,
+  // Floor is 0, not 4, so the slider can say "no hole" — on a shape with no room for a bore
+  // it now reads 0 and the part really has none, instead of reading 4 over a part that
+  // hasn't got one.
+  { key: "boreDepth", label: "Hole depth", min: 0, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16,
     maxFn: (p, m) => boreDepthCeiling(m, { ...p, stemHeight: STEM_HEIGHT.max }) },
 ];
 
@@ -47,6 +50,22 @@ const BORE_PARAMS = [
 // through the crown. geometry.js enforces this margin; the two helpers below let the UI
 // see the same limit instead of letting a slider promise depth that never gets built.
 const BORE_HEADROOM = 3; // mm of material left above the bore ceiling
+const BORE_MIN_DEPTH = 2; // shallower than this is not a hole worth cutting
+
+/**
+ * Height the bore reaches inside a solid whose top is at `topY` — or NULL when the solid is
+ * too short to hold one at all.
+ *
+ * Returning null rather than a number is the whole point. This used to be a bare
+ * `min(max(depth, 2), topY - 3)`, which on a very short stem goes NEGATIVE, and a negative
+ * ceiling revolves the bore BACKWARDS: instead of a cavity you get a solid peg hanging below
+ * the print bed, on a part the UI still claims has a hole in it. No room now means no bore.
+ */
+export function boreCeiling(boreDepth, topY) {
+  if (boreDepth < BORE_MIN_DEPTH) return null; // asked for no hole
+  const ceiling = Math.min(boreDepth, topY - BORE_HEADROOM);
+  return ceiling >= BORE_MIN_DEPTH ? ceiling : null; // no room for one
+}
 
 /**
  * Top of the solid the bore runs up into, in mm above the bed. For revolution handles that
@@ -203,7 +222,7 @@ export function goalPostShape(p) {
   // height and the fillet stays on the floor side of the wall band.
   P.wallFillet = Math.max(0, Math.min(p.wallCorner, p.wallHeight - 0.5, P.halfW - P.wallThk - 1));
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the 2D editor: the top profile at mid-depth (z=0, i.e.
   // through the walls) then down the sides to the flat bottom.
@@ -270,7 +289,7 @@ export function gpOvalShape(p) {
   P.wallCurve = Math.max(0, Math.min(p.wallCorner || 0, P.wallHeight - 0.5));            // vertical reach (ry)
   P.wallCurveX = Math.max(0, Math.min(P.wallCurve, P.tabOut - P.wallThk - 0.3));          // horizontal reach (rx)
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) slab cross-section at z=0 for the 2D editor (shows the up-curve).
   const NS = 50, top = [], bot = [];
@@ -318,7 +337,7 @@ export function tbarShape(p) {
   P.barY = p.stemHeight + ry;           // centreline height (bar bottom ~ on the stem)
   P.stemTopY = P.barY;                  // stem reaches the centreline so the solids fuse
   P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the editor: top edge then bottom edge back.
   const NS = 60, top = [], bot = [];

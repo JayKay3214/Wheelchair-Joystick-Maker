@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreTesterShape, btGlyph, btTextWidth } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreTesterShape, btGlyph, btTextWidth, boreCeiling } from "./models.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -385,7 +385,9 @@ function buildStem(P, segments) {
     new THREE.Vector2(P.stemR, P.stemTopY),
     new THREE.Vector2(P.stemR, 0),
   ];
-  if (P.boreR > 0.4) {
+  // boreCeil is null when the stem is too short to hold a bore — then the stem is solid
+  // rather than being given an inverted one.
+  if (P.boreR > 0.4 && P.boreCeil != null) {
     sec.push(new THREE.Vector2(P.boreR, 0));
     sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
     sec.push(new THREE.Vector2(0, P.boreCeil));
@@ -609,10 +611,10 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   const stemR = Math.max(outer[outer.length - 1].x, 0.5);
 
   const boreR = Math.min(Math.max(params.boreDia / 2, 0.4), stemR - 1.2);
-  const boreCeil = Math.min(Math.max(params.boreDepth, 2), topY - 3);
+  const boreCeil = boreCeiling(params.boreDepth, topY); // null = head too short for a bore
 
   const section = outer.map((p) => new THREE.Vector2(Math.max(0, p.x), p.y));
-  if (boreR > 0.4) {
+  if (boreR > 0.4 && boreCeil != null) {
     section.push(new THREE.Vector2(boreR, 0));
     section.push(new THREE.Vector2(boreR, boreCeil));
     section.push(new THREE.Vector2(0, boreCeil));
