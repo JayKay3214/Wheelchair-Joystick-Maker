@@ -1,4 +1,5 @@
-import { MODELS, fullSchema, snapDownToStep } from "./models.js";
+import { MODELS, fullSchema } from "./models.js";
+import { reachFor, snapDownToStep } from "./schema.js";
 import { MM_PER_IN } from "./units.js";
 import { SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
 
@@ -42,9 +43,9 @@ function snapClamp(schema, value, max) {
   return parseFloat(clamped.toFixed(6));
 }
 
-// Swapped in under the Mounting Hole panel while the tester is on screen. The handle-mode
-// hint it replaces lives in index.html and is read back out of the DOM on startup, so the
-// markup stays the single home for that copy.
+// The two hints the Mounting Hole panel swaps between. Both live here rather than one
+// here and one in the markup: read out of the DOM, the handle hint would silently become
+// empty if the element were renamed, and one panel's copy having two homes invites drift.
 // Count and spacing are read from the tester's own constants, so tuning the sweep can't
 // leave the copy lying. In inches the spacing is quoted both ways: the labels step by the
 // converted figure, but the plate is built on a millimetre grid and that is the honest one.
@@ -52,6 +53,9 @@ const testerSpacing = (unit) =>
   unit === "in"
     ? `${sizeLabel(SIZE_STEP, "in")}&Prime; (${SIZE_STEP}&nbsp;mm)`
     : `${SIZE_STEP}&nbsp;mm`;
+const HANDLE_HINT =
+  'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4&quot;) ' +
+  'stem. Print a test fit before committing.';
 const testerHint = (unit) =>
   `${SIZE_COUNT} holes, ${testerSpacing(unit)} apart, centred on your target. ` +
   "Print the plate and push each hole onto your controller stem — " +
@@ -65,7 +69,6 @@ export class UI {
     this.mountControls = document.getElementById("mount-controls");
     this.sizeReadout = document.getElementById("size-readout");
     this.mountHint = document.getElementById("mount-hint");
-    this.handleHint = this.mountHint ? this.mountHint.innerHTML : "";
     this.sliderEls = new Map(); // key -> { input, value, schema }
 
     this._buildModelPicker();
@@ -221,18 +224,10 @@ export class UI {
   // Some sliders have a dynamic ceiling that depends on other params (e.g. edge rounding
   // scaled to the top radius, or wall length capped to the base length).
   _dynamicMax(schema) {
-    // Snapped onto the slider's own step grid: a computed ceiling is an arbitrary real
-    // number (the bore's comes out of the shape), and an off-grid max leaves the readout
-    // showing digits the handle can never land on.
-    const snap = (v) => snapDownToStep(schema, v);
-    // A maxFn NARROWS the declared range, never widens it — the shape can rule a value out,
-    // but it cannot grant one the slider was never meant to offer.
-    // reachFn is how far the slider may TRAVEL (the store will raise other params to meet
-    // it); fitFn is what fits right now. Either way it narrows the declared range, never
-    // widens it.
-    const rangeFn = schema.reachFn || schema.fitFn || schema.maxFn;
-    if (rangeFn) return Math.min(schema.max, snap(rangeFn(this.store.params, this.store.model)));
-    return schema.max;
+    // How far this control may travel (see js/schema.js), snapped onto its own step grid:
+    // a computed ceiling is an arbitrary real number, and an off-grid max leaves the
+    // readout showing digits the handle can never land on.
+    return snapDownToStep(schema, reachFor(schema, this.store.params, this.store.model));
   }
 
   // Refresh slider positions + readouts from the store (after model/param/unit change).
@@ -273,7 +268,7 @@ export class UI {
 
     const title = document.getElementById("mount-title");
     if (title) title.textContent = testing ? "Bore Fit Tester" : "Mounting Hole";
-    if (this.mountHint) this.mountHint.innerHTML = testing ? testerHint(this.store.unit) : this.handleHint;
+    if (this.mountHint) this.mountHint.innerHTML = testing ? testerHint(this.store.unit) : HANDLE_HINT;
     if (this.testerBtn) {
       this.testerBtn.textContent = testing ? "← Back to handle" : "Print a fit tester";
       this.testerBtn.classList.toggle("is-active", testing);
@@ -294,12 +289,9 @@ export class UI {
     this._lastDims = dims;
     const u = this.store.unit;
     const fmt = (v) => (u === "in" ? `${(v / MM_PER_IN).toFixed(2)}″` : `${v.toFixed(1)} mm`);
-    // A flat plate has no meaningful diameter — show its bed footprint instead. Thickness
-    // is the plate itself, NOT the bounding box: the box includes the raised labels, and
-    // the number that matters is how much bore actually engages the stem.
     // A model that declares a flat thickness is a plate, not a handle: it has no meaningful
-    // diameter, and its thickness is the plate itself rather than the bounding box (which
-    // includes the raised labels).
+    // diameter, and the number that matters is the plate itself — NOT the bounding box,
+    // which includes the raised labels — because that is how much bore engages the stem.
     const flat = this.store.model.flatThickness;
     this.sizeReadout.textContent = flat != null
       ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(flat)} thick`

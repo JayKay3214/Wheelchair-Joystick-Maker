@@ -1,4 +1,5 @@
-import { getModel, defaultParams, fullSchema, MODELS, snapDownToStep, BORE_TESTER_ID } from "./models.js";
+import { getModel, defaultParams, fullSchema, BORE_TESTER_ID, DEFAULT_MODEL_ID } from "./models.js";
+import { ceilingFor, snapDownToStep, snapUpToStep, clampToSchema } from "./schema.js";
 
 /**
  * Single source of truth for the app.
@@ -21,7 +22,7 @@ export class Store {
     this.gridVisible = true;
     this._subs = [];
     this._parked = null; // handle state stashed while the bore tester is on screen
-    this.setModel("ball", true);
+    this.setModel(DEFAULT_MODEL_ID, true);
   }
 
   subscribe(fn) {
@@ -62,12 +63,14 @@ export class Store {
       params: { ...this.params },
       profilePoints: this.profilePoints.map((p) => ({ ...p })),
     };
-    const seed = this.params.boreDia;
+    const leaving = this.params;
     this.modelId = BORE_TESTER_ID;
     this.params = defaultParams(this.model);
-    if (seed != null) {
-      const s = this._schemaFor("boreDia");
-      this.params.boreDia = Math.min(Math.max(seed, s.min), s.max);
+    // seedFor belongs to the model being ENTERED — it declares what it wants carried over
+    // from the handle you were designing, so the store needs no param names of its own.
+    for (const [key, value] of Object.entries(this.model.seedFor?.(leaving) ?? {})) {
+      const s = this._schemaFor(key);
+      if (s && value != null) this.params[key] = clampToSchema(s, value);
     }
     this._clampDynamic();
     this.rebuildProfile();
@@ -82,7 +85,7 @@ export class Store {
    */
   exitBoreTester() {
     if (!this._parked) {
-      this.setModel(MODELS[0].id);
+      this.setModel(DEFAULT_MODEL_ID);
       return;
     }
     const { modelId, params, profilePoints } = this._parked;
@@ -117,11 +120,8 @@ export class Store {
     for (const s of fullSchema(m)) {
       let v = this.params[s.key];
       if (v == null) continue;
-      const ceilFn = s.fitFn || s.maxFn;
-      if (ceilFn) {
-        const mx = Math.max(s.min, Math.min(s.max, ceilFn(this.params, m)));
-        if (v > mx) v = snapDownToStep(s, mx);
-      }
+      const ceiling = ceilingFor(s, this.params, m);
+      if (v > ceiling) v = snapDownToStep(s, ceiling);
       this.params[s.key] = s.normalise ? s.normalise(v) : v;
     }
   }
@@ -131,14 +131,17 @@ export class Store {
     return fullSchema(this.model).find((s) => s.key === key);
   }
 
-  setParam(key, value) {
+  /**
+   * Set one slider. `grow` is what makes a deliberate edit able to carry other params up
+   * with it — asking for a deeper hole raises the stem to hold it, rather than silently
+   * ignoring the extra depth. It is off for a reset, where the panel promises to move only
+   * the one control, and it never runs during clamping, which would make a param spring
+   * back every time you tried to lower it.
+   */
+  setParam(key, value, { grow = true } = {}) {
     this.params[key] = value;
-    // A slider may declare that raising it should carry another one up with it — asking for
-    // a deeper hole grows the stem to hold it, rather than silently ignoring the extra
-    // depth. Only on an edit to that slider: doing it inside _clampDynamic would make the
-    // stem spring straight back every time you tried to shorten it.
     const schema = this._schemaFor(key);
-    if (schema && schema.growFn) this._grow(schema.growFn(this.params, this.model));
+    if (grow && schema && schema.growFn) this._grow(schema.growFn(this.params, this.model));
     this._clampDynamic();
     this.rebuildProfile();
     this._emit("param");
@@ -149,17 +152,16 @@ export class Store {
     for (const [key, need] of Object.entries(needs)) {
       const s = this._schemaFor(key);
       if (!s || this.params[key] == null || need <= this.params[key]) continue;
-      const snapped = Math.ceil(need / s.step) * s.step;
-      this.params[key] = Math.min(Math.max(snapped, s.min), s.max);
+      this.params[key] = clampToSchema(s, snapUpToStep(s, need));
     }
   }
 
   /** Reset one slider to its default value. */
   resetParam(key) {
-    const schema = fullSchema(this.model).find((s) => s.key === key);
+    const schema = this._schemaFor(key);
     const def = (this.model.defaults && this.model.defaults[key] != null) ? this.model.defaults[key] : schema && schema.def;
     if (def == null) return;
-    this.setParam(key, def);
+    this.setParam(key, def, { grow: false });
   }
 
   /** Reset every slider for the active model back to its defaults. */

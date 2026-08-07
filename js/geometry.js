@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling, boreRadius } from "./models.js";
 import { testerPlate } from "./boreTester.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
 const SMOOTH_SAMPLES = 80;
-// Straight run of stem left standing above the print bed, which edge rounding never eats
-// into. ~10 layers at a typical 0.2 mm height, so the foot starts as a clean vertical wall.
+// Straight run of stem held above the print bed, which edge rounding never eats into.
+// ~10 layers at a typical 0.2 mm height, so the foot starts as a clean vertical wall.
 const BED_STRAIGHT = 2;
 
 // Shared material so a view-mode change (Solid / Inside) applies to every rebuild.
@@ -55,12 +55,14 @@ function bezier(ctrl, N) {
  * blended into a single smooth transition. The bore is added later, so it is never
  * affected.
  *
- * Both endpoints survive as points, but they are not treated alike. A fillet may sweep
- * all the way to the top-on-axis point — that is how a large radius domes the crown. It
- * may NOT sweep to the point on the bed: BED_STRAIGHT mm of stem are held straight there,
- * because rounding the foot costs bed adhesion and softens an edge no hand ever reaches.
+ * Both endpoints survive as points, but they need not be treated alike. A fillet may
+ * sweep all the way to the FIRST point — that is how a large radius domes the crown.
+ * `holdStraight` reserves that much arc length before the LAST point, so a caller whose
+ * polyline ends on the print bed can keep the foot square: rounding it costs bed adhesion
+ * and softens an edge no hand ever reaches. The reserve never consumes the whole run, so
+ * the corner above it is always still filleted.
  */
-function roundCorners(points, r) {
+function roundCorners(points, r, holdStraight = 0) {
   if (r <= 0.01 || points.length < 3) return points;
   const n = points.length;
   const s = [0];
@@ -106,13 +108,14 @@ function roundCorners(points, r) {
     // Backward: half the gap to a neighbouring corner (so fillets never overlap), or the
     // full gap toward the top endpoint — that is what lets a big radius dome the crown.
     const dBack = Math.min(r, (s[i0] - prevLimit) * (ci > 0 ? 0.5 : 1));
-    // Forward: the last cluster runs toward the point on the BED, and the fillet must stop
-    // short of it. Sweeping into the foot pulls the stem's side inward, shrinking the
-    // contact patch the first layers stick to — and it is the one edge on the part nobody
-    // ever touches, so there is nothing to soften. Everything above the foot still rounds.
-    const dFwd = isLast
-      ? Math.min(r, Math.max(0, nextLimit - s[i1] - BED_STRAIGHT))
-      : Math.min(r, (nextLimit - s[i1]) * 0.5);
+    // Forward: half the gap to the next corner, except for the last cluster, which runs
+    // toward the far endpoint and must leave `holdStraight` of it alone. The reserve is
+    // itself capped at half the run: claiming all of it would leave dFwd at 0, and a
+    // single-corner cluster with no forward reach degenerates into a straight line —
+    // silently dropping the fillet the user asked for instead of merely shortening it.
+    const toEnd = nextLimit - s[i1];
+    const reserve = isLast ? Math.min(holdStraight, toEnd * 0.5) : toEnd * 0.5;
+    const dFwd = Math.min(r, Math.max(0, toEnd - reserve));
     const sT1 = s[i0] - dBack, sT2 = s[i1] + dFwd;
     while (cursor < n && s[cursor] < sT1 - 1e-9) { out.push(points[cursor]); cursor++; }
     const ctrl = [at(sT1)];
@@ -401,9 +404,8 @@ function buildStem(P, segments) {
     new THREE.Vector2(P.stemR, P.stemTopY),
     new THREE.Vector2(P.stemR, 0),
   ];
-  // boreCeil is null when the stem is too short to hold a bore — then the stem is solid
-  // rather than being given an inverted one.
-  if (P.boreR > 0.4 && P.boreCeil != null) {
+  // Either null means there is no bore to cut, and the stem comes out solid.
+  if (P.boreR != null && P.boreCeil != null) {
     sec.push(new THREE.Vector2(P.boreR, 0));
     sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
     sec.push(new THREE.Vector2(0, P.boreCeil));
@@ -582,18 +584,19 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   if (model.geometryKind === "tbar") return buildTBar(params, opts);
   if (model.geometryKind === "boretester") return buildBoreTester(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
-  const rounded = roundCorners(profilePoints, params.edgeRound || 0);
+  // The profile ends on the bed, so hold the foot straight (see roundCorners).
+  const rounded = roundCorners(profilePoints, params.edgeRound || 0, BED_STRAIGHT);
   const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;
   const outer = dedupe(outerRaw);
 
   const topY = outer[0].y;
   const stemR = Math.max(outer[outer.length - 1].x, 0.5);
 
-  const boreR = Math.min(Math.max(params.boreDia / 2, 0.4), stemR - 1.2);
+  const boreR = boreRadius(params.boreDia, stemR);
   const boreCeil = boreCeiling(params.boreDepth, topY); // null = head too short for a bore
 
   const section = outer.map((p) => new THREE.Vector2(Math.max(0, p.x), p.y));
-  if (boreR > 0.4 && boreCeil != null) {
+  if (boreR != null && boreCeil != null) {
     section.push(new THREE.Vector2(boreR, 0));
     section.push(new THREE.Vector2(boreR, boreCeil));
     section.push(new THREE.Vector2(0, boreCeil));

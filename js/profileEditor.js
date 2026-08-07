@@ -1,4 +1,4 @@
-import { boreCeiling } from "./models.js";
+import { boreCeiling, boreRadius } from "./models.js";
 
 /**
  * 2D profile editor. Draws the joystick's cross-section (radius vs height) mirrored
@@ -137,7 +137,7 @@ export class ProfileEditor {
       ctx.closePath(); ctx.fill(); ctx.stroke();
     }
     // bore (absent when the stem is too short to hold one)
-    if (S.boreR > 0.4 && S.boreCeil != null) {
+    if (S.boreR != null && S.boreCeil != null) {
       const bx = S.boreR * scale, by = baseY - S.boreCeil * scale;
       ctx.strokeStyle = "#f59e0b"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.25;
       ctx.beginPath();
@@ -198,9 +198,9 @@ export class ProfileEditor {
     ctx.stroke();
 
     // bore indicator (mounting hole)
-    const boreR = Math.min(this.store.params.boreDia / 2, pts[pts.length - 1].x - 1.2);
+    const boreR = boreRadius(this.store.params.boreDia, pts[pts.length - 1].x);
     const boreDepth = boreCeiling(this.store.params.boreDepth, pts[0].y);
-    if (boreR > 0.4 && boreDepth != null) {
+    if (boreR != null && boreDepth != null) {
       const bx = boreR * f.scale;
       const by = f.baseY - boreDepth * f.scale;
       ctx.strokeStyle = "#f59e0b";

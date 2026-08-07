@@ -3,6 +3,9 @@ import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
 /** The tester is a mode, not a style; several modules need to recognise it. */
 export const BORE_TESTER_ID = "boretester";
 
+/** The style the app opens on, and falls back to. */
+export const DEFAULT_MODEL_ID = "ball";
+
 /**
  * Model registry. Each model describes a wheelchair joystick handle head.
  *
@@ -23,13 +26,14 @@ export const BORE_TESTER_ID = "boretester";
 
 // ---- shared slider definitions -------------------------------------------------
 
-// Global edge-rounding (fillets sharp outer edges; never touches the bore). Roundable
-// models scale the ceiling to their own shape via `edgeRoundMax(params)`; 32 is the highest
-// any of them can ask for (Chin Cup, at full rim diameter), so it is the declared max rather
-// than a number the hook has to be allowed to override.
+// Global edge-rounding (fillets sharp outer edges; never touches the bore). Appended only
+// to models that declare `edgeRoundMax`, which scales the ceiling to their own shape — 32
+// is above every value they can ask for, so the declared max never binds first. The entry
+// is shared BY REFERENCE across those models, which is why the per-model part dispatches
+// through the model rather than living on the entry.
 const COMMON_SHAPE = [
   { key: "edgeRound", label: "Edge rounding", min: 0, max: 32, step: 0.25, group: "shape", unit: "mm", def: 1,
-    fitFn: (p, m) => (m.edgeRoundMax ? Math.max(0.25, m.edgeRoundMax(p)) : 32) },
+    fitFn: (p, m) => Math.max(0.25, m.edgeRoundMax(p)) },
 ];
 
 // Common stem + bore controls appended to every model.
@@ -40,12 +44,20 @@ const STEM_PARAMS = [
 
 const STEM_HEIGHT = STEM_PARAMS.find((s) => s.key === "stemHeight");
 
-const BORE_MIN_DEPTH = 2; // shallower than this is not a hole worth cutting
+const BORE_MIN_DEPTH = 2;   // shallower than this is not a hole worth cutting
+const BORE_MIN_RADIUS = 0.4; // narrower than this is not a hole worth cutting either
+const BORE_WALL = 1.2;      // material left between the bore and the outside of the stem
+
+/**
+ * Radius of the bore inside a stem of radius `stemR` — or NULL when the wall allowance
+ * leaves nothing to cut. Pairs with boreCeiling: both return null for "no bore", so a
+ * caller needs one shape of check rather than two.
+ */
 
 const BORE_PARAMS = [
   { key: "boreDia", label: "Hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
-  // Three separate jobs, so three separate hooks — one `maxFn` doing all of them is how the
-  // slider ended up promising depth the model never built:
+  // Three separate jobs, so three separate hooks — one ceiling doing all of them is how the
+  // slider ended up promising depth the model never built. See js/schema.js for the contract.
   //
   //   reachFn  how far the SLIDER travels: as deep as the shape could go with the stem wound
   //            all the way out, because asking for a deep hole is how you tell the app to
@@ -85,6 +97,11 @@ const BORE_HEADROOM = 3; // mm of material left above the bore ceiling
  * ceiling revolves the bore BACKWARDS: instead of a cavity you get a solid peg hanging below
  * the print bed, on a part the UI still claims has a hole in it. No room now means no bore.
  */
+export function boreRadius(boreDia, stemR) {
+  const r = Math.min(Math.max(boreDia / 2, BORE_MIN_RADIUS), stemR - BORE_WALL);
+  return r > BORE_MIN_RADIUS ? r : null; // collapsed to nothing: no bore
+}
+
 export function boreCeiling(boreDepth, topY) {
   if (boreDepth < BORE_MIN_DEPTH) return null; // asked for no hole
   const ceiling = Math.min(boreDepth, topY - BORE_HEADROOM);
@@ -101,19 +118,8 @@ function boreTopY(model, params) {
   return model.buildOuterProfile(params)[0].y;
 }
 
-/**
- * Round a computed ceiling down onto a slider's own step grid, never below its floor.
- * A ceiling derived from a shape is an arbitrary real number; the slider can only sit on
- * multiples of its step, so the store's clamp and the slider's max have to agree on which
- * number that is. Both call this.
- */
-export function snapDownToStep(schema, value) {
-  const stepped = Math.max(schema.min, Math.floor(value / schema.step) * schema.step);
-  return parseFloat(stepped.toFixed(6));
-}
-
 /** Deepest hole this model can actually build at its current settings. */
-export function boreDepthCeiling(model, params) {
+function boreDepthCeiling(model, params) {
   return boreTopY(model, params) - BORE_HEADROOM;
 }
 
@@ -121,7 +127,7 @@ export function boreDepthCeiling(model, params) {
  * Stem height needed to hold a given hole depth. The head sits on top of the stem, so the
  * room above the stem is fixed and the stem makes up the difference.
  */
-export function stemHeightForBore(model, params) {
+function stemHeightForBore(model, params) {
   const headroom = boreTopY(model, params) - params.stemHeight;
   return params.boreDepth + BORE_HEADROOM - headroom;
 }
@@ -256,7 +262,7 @@ export function goalPostShape(p) {
   // Inside-corner fillet radius (0 = sharp), clamped so the vertical inner face keeps some
   // height and the fillet stays on the floor side of the wall band.
   P.wallFillet = Math.max(0, Math.min(p.wallCorner, p.wallHeight - 0.5, P.halfW - P.wallThk - 1));
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
   P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the 2D editor: the top profile at mid-depth (z=0, i.e.
@@ -323,7 +329,7 @@ export function gpOvalShape(p) {
   // (a normal round), taller-than-wide as the slider increases.
   P.wallCurve = Math.max(0, Math.min(p.wallCorner || 0, P.wallHeight - 0.5));            // vertical reach (ry)
   P.wallCurveX = Math.max(0, Math.min(P.wallCurve, P.tabOut - P.wallThk - 0.3));          // horizontal reach (rx)
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
   P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) slab cross-section at z=0 for the 2D editor (shows the up-curve).
@@ -371,7 +377,7 @@ export function tbarShape(p) {
   };
   P.barY = p.stemHeight + ry;           // centreline height (bar bottom ~ on the stem)
   P.stemTopY = P.barY;                  // stem reaches the centreline so the solids fuse
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
   P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the editor: top edge then bottom edge back.
@@ -469,7 +475,6 @@ const MODELS = [
     // Polyline (densely sampled) so the global "Edge rounding" slider can fillet the
     // sharp rim/lip; with Catmull smoothing the rim would always be auto-rounded.
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => Math.min(p.height, p.rimDia / 2),
     schema: [
       { key: "rimDia", label: "Rim diameter", min: 26, max: 64, step: 0.5, group: "shape", unit: "mm", def: 40 },
@@ -509,7 +514,6 @@ const MODELS = [
     label: "Carrot",
     icon: ICON.carrot,
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => p.topDia / 2,
     schema: [
       { key: "topDia", label: "Top diameter", min: 16, max: 50, step: 0.5, group: "shape", unit: "mm", def: 30 },
@@ -538,7 +542,6 @@ const MODELS = [
     label: "I-Handle",
     icon: ICON.ihandle,
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => p.topDia / 2,
     tiltKey: "tilt",
     schema: [
@@ -581,8 +584,8 @@ const MODELS = [
       { key: "baseLength", label: "Base length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 5 },
-      // Front-to-back length of the walls, capped to the base length via maxFn.
-      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, maxFn: (p) => p.baseLength },
+      // Front-to-back length of the walls, capped to the base length.
+      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, fitFn: (p) => p.baseLength },
     ],
     // 21 mm is exactly what a 20 mm stem holds; 22 used to be requested and quietly trimmed.
     defaults: { stemDia: 14, stemHeight: 20, boreDepth: 21 },
@@ -608,9 +611,9 @@ const MODELS = [
       { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
-      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
+      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, fitFn: (p) => p.baseLength },
       { key: "tabStick", label: "Tab stick-out", min: 9, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
-      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, maxFn: (p) => p.wallHeight - 0.5 },
+      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, fitFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {
@@ -660,6 +663,8 @@ const MODELS = [
     schema: [
       { ...BORE_DIA, label: "Target hole diameter" },
     ],
+    // Entering the tester brings the bore you were designing across as the target.
+    seedFor: (params) => ({ boreDia: params.boreDia }),
     fileName: (params, unit) => testerFileName(params.boreDia, unit),
     // Placeholder so the store stays valid. Nothing reads it: the custom builder ignores
     // profilePoints, the editor is hidden, and boreTopY is only reached via a boreDepth
@@ -683,7 +688,7 @@ export function defaultParams(model) {
 // `bare` models (the Bore Tester) aren't handles and define their own complete schema.
 export function fullSchema(model) {
   if (model.bare) return model.schema;
-  const rounding = model.roundable ? COMMON_SHAPE : [];
+  const rounding = model.edgeRoundMax ? COMMON_SHAPE : [];
   return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS];
 }
 
