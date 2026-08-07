@@ -296,6 +296,94 @@ export function tbarShape(p) {
   return P;
 }
 
+// ---- bore fit tester -----------------------------------------------------------
+// A flat rectangular test coupon: one through-hole per candidate diameter, each with its
+// size raised beside it. Print it, find the hole that grips the controller stem the way
+// you want, then type that number into the handle's "Hole diameter". The set is always an
+// ODD count centred on the target, so the middle hole is exactly what you asked for.
+
+const BT_CORNER_R = 3;   // plate corner radius (mm)
+const BT_LABEL_SINK = 0.3; // how far the raised label sinks into the plate so the two fuse
+
+/** The candidate diameters, ascending, centred on the target. */
+export function boreTesterSizes(p) {
+  const n = Math.max(1, Math.round(p.sizeCount));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = p.boreDia + (i - (n - 1) / 2) * p.sizeStep;
+    out.push(parseFloat(Math.max(0.5, d).toFixed(3)));
+  }
+  return out;
+}
+
+/** Label text for a diameter — always 2 dp so 6.7 reads as "6.70" next to "6.75". */
+export function btLabel(d) {
+  return d.toFixed(2);
+}
+
+// 7-segment glyph metrics, all proportional to the label height. 7-segment digits need no
+// font file (keeping the buildless setup), stay legible down to ~3 mm, and print cleanly.
+export function btGlyph(h) {
+  return { h, w: h * 0.58, t: h * 0.17, gap: h * 0.16 };
+}
+
+export function btTextWidth(str, h) {
+  const g = btGlyph(h);
+  let x = 0;
+  for (const ch of str) x += (ch === "." ? g.t : g.w) + g.gap;
+  return Math.max(0, x - g.gap);
+}
+
+/**
+ * Plate layout. Cells are laid out left-to-right, smallest first, wrapping to extra rows
+ * once a single row would get long and skinny. Each cell holds one hole with its label
+ * underneath. Everything is in "plate space": u = across (+ right), v = up the page
+ * (+ toward the back of the print), origin at the plate centre.
+ */
+export function boreTesterShape(p) {
+  const sizes = boreTesterSizes(p);
+  const n = sizes.length;
+  const cols = n <= 6 ? n : Math.max(3, Math.ceil(Math.sqrt(n)));
+  const rows = Math.ceil(n / cols);
+
+  const maxDia = Math.max(...sizes);
+  const gap = p.holeGap;
+  const labelH = p.labelSize;
+  const labelW = Math.max(...sizes.map((d) => btTextWidth(btLabel(d), labelH)));
+
+  // A cell is as wide as its widest content plus one full gap, so neighbouring holes
+  // always keep at least `gap` of material between them (half that at the plate edge).
+  const cellW = Math.max(maxDia, labelW) + gap;
+  const cellH = maxDia + labelH + 1.5 * gap;
+  const plateW = cols * cellW;
+  const plateD = rows * cellH;
+
+  const cells = sizes.map((d, i) => {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const inRow = Math.min(cols, n - r * cols); // last row may be short — centre it
+    const u = -(inRow * cellW) / 2 + (c + 0.5) * cellW;
+    const vTop = plateD / 2 - r * cellH;
+    return {
+      dia: d,
+      label: btLabel(d),
+      holeU: u,
+      holeV: vTop - gap / 2 - maxDia / 2,
+      labelU: u,                          // label is centred on the hole
+      labelV: vTop - cellH + gap / 2,     // bottom edge of the label
+    };
+  });
+
+  return {
+    sizes, cells, cols, rows, plateW, plateD,
+    thickness: p.plateThk,
+    cornerR: BT_CORNER_R,
+    labelH,
+    labelRaise: p.labelRaise,
+    labelSink: BT_LABEL_SINK,
+  };
+}
+
 // ---- icons ---------------------------------------------------------------------
 
 const ICON = {
@@ -307,6 +395,7 @@ const ICON = {
   goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 21 L29 21 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
   goalpostexp: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
   tbar: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M4 14 C14 9 26 9 36 14 C26 18 14 18 4 14 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="16" width="6" height="18" rx="1.5" stroke-width="2"/></svg>`,
+  boretester: `<svg viewBox="0 0 40 40"><rect class="stroke fill" x="4" y="11" width="32" height="18" rx="2.5" stroke-width="2"/><circle class="stroke" cx="12" cy="18" r="3" stroke-width="2"/><circle class="stroke" cx="20" cy="18" r="3.6" stroke-width="2"/><circle class="stroke" cx="28" cy="18" r="4.2" stroke-width="2"/></svg>`,
 };
 
 // ---- models --------------------------------------------------------------------
@@ -545,6 +634,37 @@ const MODELS = [
       return [{ x: 0, y: S.stemTopY }, { x: S.stemR, y: 0, lockY: true }];
     },
   },
+
+  {
+    id: "boretester",
+    label: "Bore Tester",
+    icon: ICON.boretester,
+    // Not a handle style — reached from the "Print a fit tester" button in the Mounting
+    // Hole panel, so it stays out of the style picker.
+    hidden: true,
+    bare: true,      // its own sliders only: no stem, no single bore, no edge rounding
+    noProfile: true, // a flat plate has no meaningful revolved cross-section
+    smoothProfile: false,
+    custom: true,
+    geometryKind: "boretester",
+    schema: [
+      // Same key/range/step as every handle's "Hole diameter", so the number carries
+      // straight over between the tester and the handle you are designing.
+      { key: "boreDia", label: "Target hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
+      { key: "sizeStep", label: "Step between sizes", min: 0.05, max: 0.5, step: 0.05, group: "mount", unit: "mm", def: 0.1 },
+      // Step 2 from an odd minimum keeps the count odd, which keeps the target dead centre.
+      { key: "sizeCount", label: "Number of sizes", min: 3, max: 15, step: 2, group: "mount", unit: "n", def: 5 },
+      { key: "plateThk", label: "Plate thickness", min: 3, max: 20, step: 0.5, group: "mount", unit: "mm", def: 8 },
+      { key: "holeGap", label: "Spacing between holes", min: 3, max: 20, step: 0.5, group: "mount", unit: "mm", def: 6 },
+      { key: "labelSize", label: "Label size", min: 3, max: 12, step: 0.5, group: "mount", unit: "mm", def: 5 },
+      { key: "labelRaise", label: "Label height", min: 0.2, max: 1.5, step: 0.1, group: "mount", unit: "mm", def: 0.6 },
+    ],
+    // Placeholder profile so the store stays valid; the custom builder ignores it.
+    buildOuterProfile(p) {
+      const S = boreTesterShape(p);
+      return [{ x: 0, y: S.thickness }, { x: S.plateW / 2, y: 0, lockY: true }];
+    },
+  },
 ];
 
 // Build the full default param object for a model (head + stem + bore defaults).
@@ -557,7 +677,9 @@ export function defaultParams(model) {
 
 // Full ordered schema = model shape params + (edge rounding, if the shape has sharp
 // edges) + stem + bore. Smooth shapes (Ball, Mushroom) hide the edge-rounding slider.
+// `bare` models (the Bore Tester) aren't handles and define their own complete schema.
 export function fullSchema(model) {
+  if (model.bare) return model.schema;
   const rounding = model.roundable ? COMMON_SHAPE : [];
   return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS];
 }

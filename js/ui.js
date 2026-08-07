@@ -4,7 +4,7 @@ const MM_PER_IN = 25.4;
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
-  return schema.unit !== "deg" && schema.unit !== "x";
+  return schema.unit !== "deg" && schema.unit !== "x" && schema.unit !== "n";
 }
 
 /** Decimal places to show for a length param in mm, based on its slider step. */
@@ -16,12 +16,13 @@ function mmDecimals(schema) {
 function unitSuffix(schema, unit) {
   if (schema.unit === "deg") return "°";
   if (schema.unit === "x") return "×";
+  if (schema.unit === "n") return ""; // a plain count (e.g. number of test sizes)
   return unit === "in" ? "″" : "mm";
 }
 
 /** A stored value (always mm/deg/x internally) as a bare number string in the chosen unit. */
 function displayNumber(schema, value, unit) {
-  if (schema.unit === "deg") return String(Math.round(value));
+  if (schema.unit === "deg" || schema.unit === "n") return String(Math.round(value));
   if (schema.unit === "x") return value.toFixed(2);
   if (unit === "in") return (value / MM_PER_IN).toFixed(3);
   return value.toFixed(mmDecimals(schema));
@@ -42,6 +43,12 @@ function snapClamp(schema, value, max) {
   return parseFloat(clamped.toFixed(6));
 }
 
+// Hint text swapped in and out with the bore-tester mode.
+const HANDLE_HINT =
+  'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4") stem. Print a test fit before committing.';
+const TESTER_HINT =
+  "Print this plate, then push each hole onto your controller stem. Whichever one grips the way you want — read its number and type that into Hole diameter on your handle.";
+
 export class UI {
   constructor(store) {
     this.store = store;
@@ -54,6 +61,8 @@ export class UI {
     this._buildModelPicker();
     this._buildControls();
     this._wireUnitToggle();
+    this._wireBoreTester();
+    this._applyMode();
 
     const resetBtn = document.getElementById("reset-values");
     if (resetBtn) resetBtn.addEventListener("click", () => store.resetParams());
@@ -62,6 +71,7 @@ export class UI {
       if (reason === "model") {
         this._syncModelPicker();
         this._buildControls();
+        this._applyMode();
       } else if (reason === "param") {
         this._syncSliderValues();
       } else if (reason === "unit") {
@@ -205,6 +215,45 @@ export class UI {
     for (const key of this.sliderEls.keys()) this._syncOne(key);
   }
 
+  _wireBoreTester() {
+    this.testerBtn = document.getElementById("bore-tester-toggle");
+    if (!this.testerBtn) return;
+    this.testerBtn.addEventListener("click", () => {
+      if (this.store.isTesting) this.store.exitBoreTester();
+      else this.store.enterBoreTester();
+    });
+  }
+
+  /**
+   * The bore tester borrows the sidebar rather than adding a whole second one: the style
+   * picker, the shape panel and the profile editor have nothing to say about a flat test
+   * plate, so they step aside and the tester's sliders take over the Mounting Hole panel.
+   * "Reset all" and the mm/in toggle move across to whichever panel heading is on screen.
+   */
+  _applyMode() {
+    const testing = this.store.isTesting;
+    const hide = (id, v) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle("is-hidden", v);
+    };
+    hide("style-panel", testing);
+    hide("shape-panel", testing);
+    hide("profile-panel", testing);
+
+    const actions = document.getElementById("title-actions");
+    const row = document.getElementById(testing ? "mount-title-row" : "shape-title-row");
+    if (actions && row && actions.parentElement !== row) row.appendChild(actions);
+
+    const title = document.getElementById("mount-title");
+    if (title) title.textContent = testing ? "Bore Fit Tester" : "Mounting Hole";
+    const hint = document.getElementById("mount-hint");
+    if (hint) hint.innerHTML = testing ? TESTER_HINT : HANDLE_HINT;
+    if (this.testerBtn) {
+      this.testerBtn.textContent = testing ? "← Back to handle" : "Print a fit tester";
+      this.testerBtn.classList.toggle("is-active", testing);
+    }
+  }
+
   _wireUnitToggle() {
     const btns = document.querySelectorAll(".unit-btn");
     for (const btn of btns) {
@@ -219,6 +268,9 @@ export class UI {
     this._lastDims = dims;
     const u = this.store.unit;
     const fmt = (v) => (u === "in" ? `${(v / MM_PER_IN).toFixed(2)}″` : `${v.toFixed(1)} mm`);
-    this.sizeReadout.textContent = `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
+    // A flat plate has no meaningful diameter — show its bed footprint instead.
+    this.sizeReadout.textContent = this.store.isTesting
+      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(dims.height)} thick`
+      : `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
   }
 }

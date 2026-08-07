@@ -290,6 +290,13 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-dim);
 }
 .btn-ghost:hover { border-color: #3a4756; color: var(--text); }
+/* Bore-tester toggle, lit up while the tester is on screen. */
+.btn-ghost.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.is-hidden { display: none; }
 
 .export-buttons {
   display: grid;

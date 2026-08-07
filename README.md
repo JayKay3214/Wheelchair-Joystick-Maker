@@ -42,6 +42,24 @@ Every handle has a configurable round bore at the base:
 desired friction. Units default to millimetres (the 3D-printing standard); a mm/inch toggle changes the
 on-screen readouts only.
 
+### Bore fit tester
+
+Rather than guessing at that ±0.1–0.3 mm, hit **Print a fit tester** under the Hole diameter slider.
+It swaps the viewport for a flat test plate: one true through-hole per candidate diameter, each with
+its size raised beside it in 7-segment digits.
+
+- The set is always an **odd count centred on your target**, so the middle hole is exactly the
+  diameter you asked for. Target 6.70 with a 0.10 step and 5 sizes gives 6.50 · 6.60 · **6.70** ·
+  6.80 · 6.90.
+- The target is seeded from whatever Hole diameter your handle currently has, and **Back to handle**
+  restores that handle untouched — style, sliders and profile drags included.
+- Up to 6 sizes sit in one row; beyond that the plate wraps into a grid so it stays compact on the bed.
+- The holes are facetted exactly like a real handle bore, so the fit you measure is the fit you get.
+- Exports as `bore-test_6.50-6.90_step0.10.stl`, so a folder of coupons stays readable.
+
+Print it, push each hole onto your controller's stem, and type the number that grips the way you want
+into **Hole diameter**.
+
 ## Run locally
 
 No build step and no dependencies to install — it's a static site using Three.js from a CDN.
@@ -78,7 +96,7 @@ js/
   main.js         wires everything together + render loop
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
-  models.js       handle-style registry (shape generators + slider schemas)
+  models.js       handle-style registry (shape generators + slider schemas) + bore-tester layout
   geometry.js     assembles the closed cross-section + bore -> LatheGeometry
   profileEditor.js draggable 2D profile canvas
   ui.js           sliders, model picker, unit toggle

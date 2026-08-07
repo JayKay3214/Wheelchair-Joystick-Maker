@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreTesterShape, btGlyph, btTextWidth } from "./models.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -422,6 +422,161 @@ function buildTBar(params, opts = {}) {
   return geometry;
 }
 
+// ---- bore fit tester -----------------------------------------------------------
+// A flat plate with one true through-hole per candidate diameter and the size raised
+// beside it in 7-segment digits. Built in "plate space" (x = across, y = up the page,
+// z = thickness) and rotated flat at the end, so the labels read the right way up when
+// you look down at the plate — in the viewport and in the slicer.
+//
+// The plate is a single ExtrudeGeometry with the holes as Shape holes, so it is
+// watertight by construction. Each label segment is its own little box that sinks
+// slightly INTO the plate top, the same fuse-two-solids trick the stems use.
+
+// 7-segment glyphs: no font file to load (the app stays buildless), legible down to
+// ~3 mm, and every stroke is a rectangle so it slices and prints cleanly.
+const SEG7 = {
+  "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
+  "5": "afgcd", "6": "afgedc", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+};
+
+/** The chosen segments as [u0,v0,u1,v1] rectangles in glyph space (0..w, 0..h). */
+function segRects(g, keys) {
+  const { w, h, t } = g;
+  const m = (h - t) / 2; // underside of the middle bar
+  // Horizontal bars are inset at their ends by q: they still overlap the vertical bars
+  // (so each digit fuses into one solid) but no two segments share an exact vertex,
+  // which would otherwise turn the STEP export's closed shells into open ones.
+  const q = t * 0.35;
+  const R = {
+    a: [q, h - t, w - q, h],
+    g: [q, m, w - q, m + t],
+    d: [q, 0, w - q, t],
+    f: [0, m, t, h],
+    b: [w - t, m, w, h],
+    e: [0, 0, t, m + t],
+    c: [w - t, 0, w, m + t],
+  };
+  return [...keys].map((k) => R[k]);
+}
+
+/** An axis-aligned box spanning [u0,u1] x [v0,v1] in plate space, z0 -> z0+depth. */
+function plateBox(u0, v0, u1, v1, z0, depth) {
+  return new THREE.BoxGeometry(u1 - u0, v1 - v0, depth)
+    .translate((u0 + u1) / 2, (v0 + v1) / 2, z0 + depth / 2);
+}
+
+/** Rounded-rectangle outline as explicit points (kept coarse — only the holes need resolution). */
+function roundedRectPoints(hw, hd, r, seg = 6) {
+  r = Math.max(0, Math.min(r, hw - 0.1, hd - 0.1));
+  if (r <= 0.01) {
+    return [new THREE.Vector2(hw, -hd), new THREE.Vector2(hw, hd), new THREE.Vector2(-hw, hd), new THREE.Vector2(-hw, -hd)];
+  }
+  const pts = [];
+  const corner = (cx, cy, a0) => {
+    for (let i = 0; i <= seg; i++) {
+      const a = a0 + (Math.PI / 2) * (i / seg);
+      pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
+    }
+  };
+  corner(hw - r, -hd + r, -Math.PI / 2);
+  corner(hw - r, hd - r, 0);
+  corner(-hw + r, hd - r, Math.PI / 2);
+  corner(-hw + r, -hd + r, Math.PI);
+  return pts;
+}
+
+function circlePoints(cx, cy, r, seg, startAngle = 0) {
+  const pts = [];
+  for (let i = 0; i < seg; i++) {
+    const a = (2 * Math.PI * i) / seg + startAngle;
+    pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
+  }
+  return pts;
+}
+
+/**
+ * The plate itself: a slab with a true through-hole per size. Built by hand rather than
+ * with ExtrudeGeometry — as of three r175 the extruder emits NO lid faces when
+ * bevelSegments is 0, which would leave the plate as an open tube of walls. Caps come
+ * from the same ShapeUtils triangulator the goal-post tabs use; walls are one quad per
+ * contour edge. Every cap vertex is literally a wall vertex, so the result welds into a
+ * watertight manifold solid.
+ */
+function buildPlateSolid(S, segments) {
+  const outer = roundedRectPoints(S.plateW / 2, S.plateD / 2, S.cornerR); // CCW
+  // Holes run CW so the "right of travel" normal below points INTO the hole. Each hole
+  // also starts at a slightly different angle: identical start angles leave hole vertices
+  // exactly collinear with the triangulator's hole bridges, which yields zero-area cap
+  // triangles that the STEP exporter must drop (turning a solid into a surface model).
+  // Rotating a hole doesn't change it — same inscribed polygon, same diameter.
+  const holes = S.cells.map((c, i) =>
+    circlePoints(c.holeU, c.holeV, c.dia / 2, segments, ((i * 0.37) * 2 * Math.PI) / segments).reverse()
+  );
+  const faces = THREE.ShapeUtils.triangulateShape(outer, holes);
+  const all = [...outer, ...holes.flat()]; // index space the faces refer to
+
+  const T = [];
+  const tri = (a, b, c, out) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] >= 0) T.push(...a, ...b, ...c);
+    else T.push(...a, ...c, ...b);
+  };
+
+  const top = S.thickness, bot = 0;
+  const UP = [0, 0, 1], DN = [0, 0, -1];
+  for (const [i, j, k] of faces) {
+    tri([all[i].x, all[i].y, top], [all[j].x, all[j].y, top], [all[k].x, all[k].y, top], UP);
+    tri([all[i].x, all[i].y, bot], [all[j].x, all[j].y, bot], [all[k].x, all[k].y, bot], DN);
+  }
+  for (const ring of [outer, ...holes]) {
+    for (let i = 0; i < ring.length; i++) {
+      const p0 = ring[i], p1 = ring[(i + 1) % ring.length];
+      const out = [p1.y - p0.y, -(p1.x - p0.x), 0]; // right of travel = away from the material
+      tri([p0.x, p0.y, bot], [p1.x, p1.y, bot], [p1.x, p1.y, top], out);
+      tri([p0.x, p0.y, bot], [p1.x, p1.y, top], [p0.x, p0.y, top], out);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(T, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildBoreTester(params, opts = {}) {
+  // Facet the test holes exactly like a real handle bore, so what you measure on the
+  // coupon is what you get in the finished handle.
+  const segments = opts.segments || RADIAL_SEGMENTS;
+  const S = boreTesterShape(params);
+  const parts = [buildPlateSolid(S, segments)];
+
+  const g = btGlyph(S.labelH);
+  const z0 = S.thickness - S.labelSink;
+  const depth = S.labelRaise + S.labelSink;
+  for (const cell of S.cells) {
+    let u = cell.labelU - btTextWidth(cell.label, S.labelH) / 2;
+    for (const ch of cell.label) {
+      if (ch === ".") {
+        parts.push(plateBox(u, cell.labelV, u + g.t, cell.labelV + g.t, z0, depth));
+        u += g.t + g.gap;
+      } else {
+        for (const [u0, v0, u1, v1] of segRects(g, SEG7[ch] || "")) {
+          parts.push(plateBox(u + u0, cell.labelV + v0, u + u1, cell.labelV + v1, z0, depth));
+        }
+        u += g.w + g.gap;
+      }
+    }
+  }
+
+  const geometry = mergeGeoms(parts);
+  geometry.rotateX(-Math.PI / 2); // plate space -> Y-up, lying flat on the bed
+  geometry.computeBoundingBox();
+  for (const p of parts) p.dispose();
+  return geometry;
+}
+
 /**
  * Assemble the full closed cross-section (radius vs height) and revolve it.
  * The first point (top, x=0) and the last (bore ceiling, x=0) lie on the axis,
@@ -432,6 +587,7 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
   if (model.geometryKind === "goalpostoval") return buildGoalPostOval(params, opts);
   if (model.geometryKind === "tbar") return buildTBar(params, opts);
+  if (model.geometryKind === "boretester") return buildBoreTester(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
   const rounded = roundCorners(profilePoints, params.edgeRound || 0);
   const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;

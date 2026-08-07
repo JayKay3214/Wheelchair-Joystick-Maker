@@ -149,6 +149,8 @@ export class ProfileEditor {
   }
 
   draw() {
+    // Models with no revolved cross-section (the flat Bore Tester plate) hide this panel.
+    if (this.store.model.noProfile) { this.ctx.clearRect(0, 0, W, H); return; }
     if (this.store.model.custom && this.store.model.shape2D) { this._drawCustom(); return; }
     const ctx = this.ctx;
     const f = this._fit();

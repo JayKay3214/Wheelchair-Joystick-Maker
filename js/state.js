@@ -20,6 +20,7 @@ export class Store {
     this.unit = "mm";
     this.gridVisible = true;
     this._subs = [];
+    this._parked = null; // handle state stashed while the bore tester is on screen
     this.setModel("ball", true);
   }
 
@@ -36,12 +37,52 @@ export class Store {
   }
 
   setModel(id, silent = false) {
+    this._parked = null; // picking a style outright discards any parked tester state
     this.modelId = id;
     this.model_ = getModel(id);
     this.params = defaultParams(this.model_);
     this._clampDynamic(); // defaults may exceed a dynamic ceiling (e.g. wall length vs corners)
     this.rebuildProfile();
     if (!silent) this._emit("model");
+  }
+
+  // ---- bore fit tester ---------------------------------------------------------
+  // The tester is a mode, not a handle style: entering it parks the handle you were
+  // designing (style, sliders and any profile drags) and restores it untouched on the
+  // way back. The tester's target hole is seeded from the handle's current bore, so you
+  // get a set of sizes bracketing the diameter you were already using.
+
+  get isTesting() {
+    return this.modelId === "boretester";
+  }
+
+  enterBoreTester() {
+    if (this.isTesting) return;
+    this._parked = {
+      modelId: this.modelId,
+      params: { ...this.params },
+      profilePoints: this.profilePoints.map((p) => ({ ...p })),
+    };
+    const seed = this.params.boreDia;
+    this.modelId = "boretester";
+    this.params = defaultParams(this.model);
+    if (seed != null) {
+      const s = fullSchema(this.model).find((x) => x.key === "boreDia");
+      this.params.boreDia = Math.min(Math.max(seed, s.min), s.max);
+    }
+    this._clampDynamic();
+    this.rebuildProfile();
+    this._emit("model");
+  }
+
+  exitBoreTester() {
+    if (!this._parked) return;
+    const { modelId, params, profilePoints } = this._parked;
+    this._parked = null;
+    this.modelId = modelId;
+    this.params = params;
+    this.profilePoints = profilePoints;
+    this._emit("model");
   }
 
   /** Regenerate the outer silhouette from the current params (resets manual drags). */
