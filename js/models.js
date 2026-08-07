@@ -1,3 +1,5 @@
+import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
+
 /**
  * Model registry. Each model describes a wheelchair joystick handle head.
  *
@@ -81,6 +83,17 @@ export function boreCeiling(boreDepth, topY) {
  */
 function boreTopY(model, params) {
   return model.buildOuterProfile(params)[0].y;
+}
+
+/**
+ * Round a computed ceiling down onto a slider's own step grid, never below its floor.
+ * A ceiling derived from a shape is an arbitrary real number; the slider can only sit on
+ * multiples of its step, so the store's clamp and the slider's max have to agree on which
+ * number that is. Both call this.
+ */
+export function snapDownToStep(schema, value) {
+  const stepped = Math.max(schema.min, Math.floor(value / schema.step) * schema.step);
+  return parseFloat(stepped.toFixed(6));
 }
 
 /** Deepest hole this model can actually build at its current settings. */
@@ -238,7 +251,7 @@ export function goalPostShape(p) {
   return P;
 }
 
-// ---- Goal Post Experimental: oval "Pringles" saddle base -----------------------
+// ---- Goal Post 2: oval "Pringles" saddle base ----------------------------------
 // The base is an OVAL (ellipse: wide left-right where the walls go, shorter front-to-back)
 // shaped like a Pringles chip: a constant-thickness slab whose mid-surface curves UP toward
 // the left/right (wall) ends and droops DOWN toward the front/back ends. The centre stays
@@ -357,154 +370,6 @@ export function tbarShape(p) {
   return P;
 }
 
-// ---- bore fit tester -----------------------------------------------------------
-// A flat rectangular test coupon: one through-hole per candidate diameter, each with its
-// size raised beside it. Print it, find the hole that grips the controller stem the way
-// you want, then type that number into the handle's "Hole diameter". The set is always an
-// ODD count centred on the target, so the middle hole is exactly what you asked for.
-
-// The sweep is fixed rather than exposed as sliders: target ±0.4 mm in 0.1 mm steps covers
-// the adjustment range this tool tells you to try with a step to spare at each end, and it
-// keeps the tester a one-decision job — set the size you're aiming at, print, read the
-// winner off the plate. Widening the sweep is a matter of changing these two numbers.
-// Nine also happens to tile as a perfect 3x3, which is why it beats seven: same plate size,
-// no half-empty row, two extra sizes free.
-const BT_STEP = 0.1;   // mm between adjacent sizes
-const BT_COUNT = 9;    // odd, so the target lands dead centre
-
-// Plate proportions. All fixed: they suit any printer, and none of them change what the
-// test actually measures.
-export const BT_PLATE_THK = 8; // plate thickness = how much bore the stem engages
-const BT_HOLE_GAP = 6;     // material between neighbouring holes
-const BT_LABEL_SIZE = 5;   // label cap height
-const BT_LABEL_RAISE = 0.6; // how far the labels stand off the plate
-const BT_CORNER_R = 3;     // plate corner radius
-const BT_LABEL_SINK = 0.3; // how far the raised label sinks into the plate so the two fuse
-// Cost added per empty cell when picking the grid, in units of aspect ratio. Enough to
-// break a near-tie toward a grid that comes out full (nine lands on an exact 3x3).
-const BT_EMPTY_CELL_COST = 0.15;
-
-/**
- * The column count whose grid comes out closest to square. Cells are usually wider than
- * they are deep — the label sets the width, not the hole — so this isn't ceil(sqrt(n)).
- */
-function squarestColumnCount(n, cellW, cellH) {
-  let best = n, bestScore = Infinity;
-  for (let cols = 1; cols <= n; cols++) {
-    const rows = Math.ceil(n / cols);
-    const w = cols * cellW, d = rows * cellH;
-    const score = Math.max(w, d) / Math.min(w, d) + (cols * rows - n) * BT_EMPTY_CELL_COST;
-    if (score < bestScore) { bestScore = score; best = cols; }
-  }
-  return best;
-}
-
-/**
- * The candidate diameters, ascending, centred on the target. A size that would come out
- * below 0.5 mm is DROPPED rather than clamped: clamping would emit several holes of the
- * same diameter carrying the same label, which is exactly the confusion this tool exists
- * to remove. Unreachable at the shipped BT_COUNT — it only bites if the sweep is widened.
- */
-export function boreTesterSizes(p) {
-  const out = [];
-  for (let i = 0; i < BT_COUNT; i++) {
-    const d = p.boreDia + (i - (BT_COUNT - 1) / 2) * BT_STEP;
-    if (d >= 0.5) out.push(parseFloat(d.toFixed(3)));
-  }
-  return out;
-}
-
-export const MM_PER_IN = 25.4;
-
-// Label precision, per unit, chosen so two adjacent holes can never print the same number.
-// In mm the step sets it. In inches a 0.1 mm step is only 0.0039", so 2 dp would collapse
-// nine sizes onto four labels — 3 dp keeps them distinct AND survives the round trip back
-// into Hole diameter, whose 0.05 mm snap absorbs the 0.0005" (0.0127 mm) rounding error.
-const BT_LABEL_DP = Math.max(2, Math.ceil(-Math.log10(BT_STEP)));
-const BT_LABEL_DP_IN = 3;
-
-/**
- * Label text for a diameter, in the unit currently on screen — the number you read off the
- * printed plate has to be the number you can type straight into Hole diameter.
- */
-export function btLabel(d, unit = "mm") {
-  return unit === "in" ? (d / MM_PER_IN).toFixed(BT_LABEL_DP_IN) : d.toFixed(BT_LABEL_DP);
-}
-
-/** Export filename for a tester plate: the range, in whatever unit the plate is marked in. */
-export function boreTesterFileName(p, unit = "mm") {
-  const s = boreTesterSizes(p);
-  const range = `${btLabel(s[0], unit)}-${btLabel(s[s.length - 1], unit)}`;
-  return unit === "in" ? `bore-test_${range}in` : `bore-test_${range}mm_step${BT_STEP.toFixed(2)}`;
-}
-
-// 7-segment glyph metrics, all proportional to the label height. 7-segment digits need no
-// font file (keeping the buildless setup), stay legible down to ~3 mm, and print cleanly.
-export function btGlyph(h) {
-  return { h, w: h * 0.58, t: h * 0.17, gap: h * 0.16 };
-}
-
-export function btTextWidth(str, h) {
-  const g = btGlyph(h);
-  let x = 0;
-  for (const ch of str) x += (ch === "." ? g.t : g.w) + g.gap;
-  return Math.max(0, x - g.gap);
-}
-
-/**
- * Plate layout. Cells are laid out left-to-right, smallest first, in the grid that comes
- * out closest to SQUARE — a long thin coupon overruns small beds (a row of nine would be
- * 160 mm) and lifts at the corners. Each cell holds one hole with its label underneath.
- * Everything is in "plate space": u = across (+ right), v = up the page (+ toward the back
- * of the print), origin at the plate centre.
- */
-export function boreTesterShape(p, unit = "mm") {
-  const sizes = boreTesterSizes(p);
-  const n = sizes.length;
-
-  const maxDia = Math.max(...sizes);
-  const gap = BT_HOLE_GAP;
-  const labelH = BT_LABEL_SIZE;
-  // Inch labels are a character longer ("0.248" vs "6.30"), so the cells — and the plate —
-  // size themselves around whichever text is actually going to be embossed.
-  const labelW = Math.max(...sizes.map((d) => btTextWidth(btLabel(d, unit), labelH)));
-
-  // A cell is as wide as its widest content plus one full gap, so neighbouring holes
-  // always keep at least `gap` of material between them (half that at the plate edge).
-  const cellW = Math.max(maxDia, labelW) + gap;
-  const cellH = maxDia + labelH + 1.5 * gap;
-
-  const cols = squarestColumnCount(n, cellW, cellH);
-  const rows = Math.ceil(n / cols);
-  const plateW = cols * cellW;
-  const plateD = rows * cellH;
-
-  const cells = sizes.map((d, i) => {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    const inRow = Math.min(cols, n - r * cols); // last row may be short — centre it
-    const u = -(inRow * cellW) / 2 + (c + 0.5) * cellW;
-    const vTop = plateD / 2 - r * cellH;
-    return {
-      dia: d,
-      label: btLabel(d, unit),
-      holeU: u,
-      holeV: vTop - gap / 2 - maxDia / 2,
-      labelU: u,                          // label is centred on the hole
-      labelV: vTop - cellH + gap / 2,     // bottom edge of the label
-    };
-  });
-
-  return {
-    sizes, cells, cols, rows, plateW, plateD,
-    thickness: BT_PLATE_THK,
-    cornerR: BT_CORNER_R,
-    labelH,
-    labelRaise: BT_LABEL_RAISE,
-    labelSink: BT_LABEL_SINK,
-  };
-}
-
 // ---- icons ---------------------------------------------------------------------
 
 const ICON = {
@@ -512,9 +377,11 @@ const ICON = {
   mushroom: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M7 17 C7 8 33 8 33 17 C33 21 26 22 20 22 C14 22 7 21 7 17 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   chincup: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 16 C6 22 34 22 34 16 C34 13 28 11 20 11 C12 11 6 13 6 16 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   carrot: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M11 9 L29 9 L24 30 L16 30 Z" stroke-width="2"/></svg>`,
-  ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M14 6 L24 8 L21 27 L15 26 Z" stroke-width="2"/><rect class="stroke fill" x="13" y="26" width="7" height="9" rx="1.5" stroke-width="2"/></svg>`,
+  // Upright and symmetric about the centre axis — the handle only leans when the Tilt
+  // slider says so, and its default is 0, so a leaning icon misrepresented the shape.
+  ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M16 4 L24 4 L25.5 28 L14.5 28 Z" stroke-width="2"/><rect class="stroke fill" x="16.5" y="27" width="7" height="8" rx="1.5" stroke-width="2"/></svg>`,
   goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 21 L29 21 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
-  goalpostexp: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
+  goalpost2: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
   tbar: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M4 14 C14 9 26 9 36 14 C26 18 14 18 4 14 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="16" width="6" height="18" rx="1.5" stroke-width="2"/></svg>`,
   boretester: `<svg viewBox="0 0 40 40"><rect class="stroke fill" x="4" y="11" width="32" height="18" rx="2.5" stroke-width="2"/><circle class="stroke" cx="12" cy="18" r="3" stroke-width="2"/><circle class="stroke" cx="20" cy="18" r="3.6" stroke-width="2"/><circle class="stroke" cx="28" cy="18" r="4.2" stroke-width="2"/></svg>`,
 };
@@ -711,9 +578,9 @@ const MODELS = [
   },
 
   {
-    id: "goalpostexp",
-    label: "Goal Post Experimental",
-    icon: ICON.goalpostexp,
+    id: "goalpost2",
+    label: "Goal Post 2",
+    icon: ICON.goalpost2,
     // Oval "Pringles" saddle base (walls hidden for now — work in progress).
     smoothProfile: false,
     custom: true,
@@ -764,8 +631,9 @@ const MODELS = [
     // Not a handle style — reached from the "Print a fit tester" button in the Mounting
     // Hole panel, so it stays out of the style picker.
     hidden: true,
-    bare: true,      // its own sliders only: no stem, no single bore, no edge rounding
-    noProfile: true, // a flat plate has no meaningful revolved cross-section
+    bare: true,       // its own sliders only: no stem, no single bore, no edge rounding
+    noProfile: true,  // a flat plate has no meaningful revolved cross-section
+    unitMarked: true, // its labels are embossed, so mm/in genuinely reshapes the part
     smoothProfile: false,
     custom: true,
     geometryKind: "boretester",
@@ -775,10 +643,11 @@ const MODELS = [
     schema: [
       { ...BORE_PARAMS[0], label: "Target hole diameter" },
     ],
-    // Placeholder profile so the store stays valid; the custom builder ignores it.
-    buildOuterProfile(p) {
-      const S = boreTesterShape(p);
-      return [{ x: 0, y: S.thickness }, { x: S.plateW / 2, y: 0, lockY: true }];
+    fileName: (params, unit) => testerFileName(params, unit),
+    // Placeholder profile so the store stays valid; the custom builder ignores it. Kept
+    // unit-independent on purpose — plateW depends on the label text, and nothing reads it.
+    buildOuterProfile() {
+      return [{ x: 0, y: PLATE_THICKNESS }, { x: 0.5, y: 0, lockY: true }];
     },
   },
 ];

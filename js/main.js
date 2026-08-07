@@ -5,7 +5,7 @@ import { ProfileEditor } from "./profileEditor.js";
 import * as THREE from "three";
 import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
 import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
-import { boreTesterFileName } from "./models.js";
+
 
 const store = new Store();
 const scene = new SceneManager(document.getElementById("scene-canvas"));
@@ -28,9 +28,9 @@ function regenerate(frame = false) {
 
 store.subscribe((reason) => {
   if (reason === "model" || reason === "param" || reason === "profile") regenerate(reason === "model");
-  // The tester's labels are embossed geometry, so switching mm/in genuinely reshapes the
-  // plate. Every other model is unit-agnostic and needs no rebuild.
-  else if (reason === "unit" && store.isTesting) regenerate();
+  // A unitMarked model carries the unit in its geometry (the tester's labels are embossed),
+  // so switching mm/in genuinely reshapes it. Every other model needs no rebuild.
+  else if (reason === "unit" && store.model.unitMarked) regenerate();
 });
 regenerate(true); // initial (fit camera to the first model)
 
@@ -59,7 +59,8 @@ viewBtn.addEventListener("click", () => {
 
 // ---- export -------------------------------------------------------------------
 function fileName() {
-  return store.isTesting ? boreTesterFileName(store.params, store.unit) : `joystick-${store.modelId}`;
+  // A model that names its own exports says so; everything else is joystick-<id>.
+  return store.model.fileName?.(store.params, store.unit) ?? `joystick-${store.modelId}`;
 }
 document.getElementById("export-stl").addEventListener("click", () => {
   if (scene.mesh) exportSTL(scene.mesh.geometry, fileName());

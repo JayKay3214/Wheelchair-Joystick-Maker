@@ -1,4 +1,6 @@
-import { MODELS, fullSchema, BT_PLATE_THK, MM_PER_IN } from "./models.js";
+import { MODELS, fullSchema, snapDownToStep } from "./models.js";
+import { MM_PER_IN } from "./units.js";
+import { PLATE_THICKNESS, SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
@@ -43,11 +45,16 @@ function snapClamp(schema, value, max) {
 // Swapped in under the Mounting Hole panel while the tester is on screen. The handle-mode
 // hint it replaces lives in index.html and is read back out of the DOM on startup, so the
 // markup stays the single home for that copy.
-// In inches the spacing is quoted both ways: 0.004&Prime; is what the labels step by, but the
-// plate is built on a 0.1 mm grid and that is the honest number.
+// Count and spacing are read from the tester's own constants, so tuning the sweep can't
+// leave the copy lying. In inches the spacing is quoted both ways: the labels step by the
+// converted figure, but the plate is built on a millimetre grid and that is the honest one.
+const testerSpacing = (unit) =>
+  unit === "in"
+    ? `${sizeLabel(SIZE_STEP, "in")}&Prime; (${SIZE_STEP}&nbsp;mm)`
+    : `${SIZE_STEP}&nbsp;mm`;
 const testerHint = (unit) =>
-  (unit === "in" ? "Nine holes, 0.004&Prime; (0.1&nbsp;mm) apart, " : "Nine holes, 0.1&nbsp;mm apart, ") +
-  "centred on your target. Print the plate and push each hole onto your controller stem — " +
+  `${SIZE_COUNT} holes, ${testerSpacing(unit)} apart, centred on your target. ` +
+  "Print the plate and push each hole onto your controller stem — " +
   "whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
 
 export class UI {
@@ -210,7 +217,7 @@ export class UI {
     // Snapped onto the slider's own step grid: a computed ceiling is an arbitrary real
     // number (the bore's comes out of the shape), and an off-grid max leaves the readout
     // showing digits the handle can never land on.
-    const snap = (v) => Math.max(schema.min, parseFloat((Math.floor(v / schema.step) * schema.step).toFixed(6)));
+    const snap = (v) => snapDownToStep(schema, v);
     // A maxFn NARROWS the declared range, never widens it — the shape can rule a value out,
     // but it cannot grant one the slider was never meant to offer.
     if (schema.maxFn) return Math.min(schema.max, snap(schema.maxFn(this.store.params, this.store.model)));
@@ -285,7 +292,7 @@ export class UI {
     // is the plate itself, NOT the bounding box: the box includes the raised labels, and
     // the number that matters is how much bore actually engages the stem.
     this.sizeReadout.textContent = this.store.isTesting
-      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(BT_PLATE_THK)} thick`
+      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(PLATE_THICKNESS)} thick`
       : `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
   }
 }

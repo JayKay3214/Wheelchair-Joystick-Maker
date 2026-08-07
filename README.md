@@ -116,7 +116,9 @@ js/
   main.js         wires everything together + render loop
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
-  models.js       handle-style registry (shape generators + slider schemas) + bore-tester layout
+  models.js       handle-style registry (shape generators + slider schemas)
+  boreTester.js   the fit tester's sizes, plate layout and 7-segment digits (all 2D)
+  units.js        mm <-> inch conversion
   geometry.js     assembles the closed cross-section + bore -> LatheGeometry
   profileEditor.js draggable 2D profile canvas
   ui.js           sliders, model picker, unit toggle

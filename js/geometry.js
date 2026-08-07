@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreTesterShape, btGlyph, btTextWidth, boreCeiling } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling } from "./models.js";
+import { testerPlate, labelRects } from "./boreTester.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -255,7 +256,7 @@ function buildGoalPost(params, opts = {}) {
   return geometry;
 }
 
-/** Goal Post Experimental: an oval "Pringles" saddle slab (curved top AND bottom over an
+/** Goal Post 2: an oval "Pringles" saddle slab (curved top AND bottom over an
  * elliptical footprint) fused with a bored central stem. Winding is correct by construction:
  * top grid wound +Y, bottom -Y, rim strips oriented per-quad away from the vertical axis. */
 // The whole head as ONE watertight solid: a smooth elliptical saddle slab, PLUS an explicitly
@@ -450,33 +451,6 @@ function buildTBar(params, opts = {}) {
 // label segment is its own little box that sinks slightly INTO the plate top, the same
 // fuse-two-solids trick the stems use.
 
-// 7-segment glyphs: no font file to load (the app stays buildless), legible down to
-// ~3 mm, and every stroke is a rectangle so it slices and prints cleanly.
-const SEG7 = {
-  "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc",
-  "5": "afgcd", "6": "afgedc", "7": "abc", "8": "abcdefg", "9": "abcdfg",
-};
-
-/** The chosen segments as [u0,v0,u1,v1] rectangles in glyph space (0..w, 0..h). */
-function segRects(g, keys) {
-  const { w, h, t } = g;
-  const m = (h - t) / 2; // underside of the middle bar
-  // Horizontal bars are inset at their ends by q: they still overlap the vertical bars
-  // (so each digit fuses into one solid) but no two segments share an exact vertex,
-  // which would otherwise turn the STEP export's closed shells into open ones.
-  const q = t * 0.35;
-  const R = {
-    a: [q, h - t, w - q, h],
-    g: [q, m, w - q, m + t],
-    d: [q, 0, w - q, t],
-    f: [0, m, t, h],
-    b: [w - t, m, w, h],
-    e: [0, 0, t, m + t],
-    c: [w - t, 0, w, m + t],
-  };
-  return [...keys].map((k) => R[k]);
-}
-
 /** An axis-aligned box spanning [u0,u1] x [v0,v1] in plate space, z0 -> z0+depth. */
 function plateBox(u0, v0, u1, v1, z0, depth) {
   return new THREE.BoxGeometry(u1 - u0, v1 - v0, depth)
@@ -563,24 +537,16 @@ function buildBoreTester(params, opts = {}) {
   const segments = opts.segments || RADIAL_SEGMENTS;
   // Marked in whatever unit is on screen, so the number you read off the print is the one
   // you can type back into Hole diameter without converting it in your head.
-  const S = boreTesterShape(params, opts.unit);
+  const S = testerPlate(params, opts.unit);
   const parts = [buildPlateSolid(S, segments)];
 
-  const g = btGlyph(S.labelH);
+  // Each digit stroke is its own little box, sunk slightly INTO the plate top so the two
+  // fuse. boreTester.js decides what the digits look like; here they just get extruded.
   const z0 = S.thickness - S.labelSink;
   const depth = S.labelRaise + S.labelSink;
   for (const cell of S.cells) {
-    let u = cell.labelU - btTextWidth(cell.label, S.labelH) / 2;
-    for (const ch of cell.label) {
-      if (ch === ".") {
-        parts.push(plateBox(u, cell.labelV, u + g.t, cell.labelV + g.t, z0, depth));
-        u += g.t + g.gap;
-      } else {
-        for (const [u0, v0, u1, v1] of segRects(g, SEG7[ch] || "")) {
-          parts.push(plateBox(u + u0, cell.labelV + v0, u + u1, cell.labelV + v1, z0, depth));
-        }
-        u += g.w + g.gap;
-      }
+    for (const { u0, v0, u1, v1 } of labelRects(cell.label, S.labelH, cell.labelU, cell.labelV)) {
+      parts.push(plateBox(u0, v0, u1, v1, z0, depth));
     }
   }
 

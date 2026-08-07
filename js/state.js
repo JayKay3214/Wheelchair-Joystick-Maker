@@ -1,4 +1,4 @@
-import { getModel, defaultParams, fullSchema, MODELS, stemHeightForBore, boreDepthCeiling } from "./models.js";
+import { getModel, defaultParams, fullSchema, MODELS, stemHeightForBore, boreDepthCeiling, snapDownToStep } from "./models.js";
 
 /**
  * Single source of truth for the app.
@@ -66,7 +66,7 @@ export class Store {
     this.modelId = "boretester";
     this.params = defaultParams(this.model);
     if (seed != null) {
-      const s = fullSchema(this.model).find((x) => x.key === "boreDia");
+      const s = this._schemaFor("boreDia");
       this.params.boreDia = Math.min(Math.max(seed, s.min), s.max);
     }
     this._clampDynamic();
@@ -114,17 +114,16 @@ export class Store {
         // A maxFn narrows the declared range, never widens it (see UI._dynamicMax).
         const mx = Math.max(s.min, Math.min(s.max, s.maxFn(this.params, m)));
         if (this.params[s.key] > mx) {
-          this.params[s.key] = this._snapDown(mx, s);
+          this.params[s.key] = snapDownToStep(s, mx);
         }
       }
     }
     this._trimBoreToFit();
   }
 
-  /** Round a ceiling down onto a slider's own step grid, never below its floor. */
-  _snapDown(value, schema) {
-    const stepped = Math.max(schema.min, Math.floor(value / schema.step) * schema.step);
-    return parseFloat(stepped.toFixed(6));
+  /** The active model's schema entry for a slider key. */
+  _schemaFor(key) {
+    return fullSchema(this.model).find((s) => s.key === key);
   }
 
   /**
@@ -134,11 +133,11 @@ export class Store {
    * gets built. Runs after the maxFn pass, so it sees settled values.
    */
   _trimBoreToFit() {
-    const schema = fullSchema(this.model).find((s) => s.key === "boreDepth");
+    const schema = this._schemaFor("boreDepth");
     if (!schema || this.params.boreDepth == null) return;
     const ceiling = boreDepthCeiling(this.model, this.params);
     if (this.params.boreDepth > ceiling) {
-      this.params.boreDepth = this._snapDown(ceiling, schema);
+      this.params.boreDepth = snapDownToStep(schema, ceiling);
     }
   }
 
@@ -155,7 +154,7 @@ export class Store {
 
   /** Raise the stem (as far as its slider goes) so the requested hole depth fits. */
   _growStemForBore() {
-    const schema = fullSchema(this.model).find((s) => s.key === "stemHeight");
+    const schema = this._schemaFor("stemHeight");
     if (!schema || this.params.stemHeight == null || this.params.boreDepth == null) return;
     const need = stemHeightForBore(this.model, this.params);
     if (need <= this.params.stemHeight) return;
