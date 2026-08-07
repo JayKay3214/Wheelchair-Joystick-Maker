@@ -1,6 +1,6 @@
 import { MODELS, fullSchema, snapDownToStep } from "./models.js";
 import { MM_PER_IN } from "./units.js";
-import { PLATE_THICKNESS, SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
+import { SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
@@ -95,7 +95,7 @@ export class UI {
   _buildModelPicker() {
     this.modelPicker.innerHTML = "";
     for (const m of MODELS) {
-      if (m.hidden) continue; // e.g. Goal Posts — kept in code, hidden from the picker
+      if (m.hidden) continue; // the Bore Tester is a mode, not a style — it has its own way in
       const card = document.createElement("button");
       card.type = "button";
       card.className = "model-card" + (m.id === this.store.modelId ? " is-active" : "");
@@ -220,12 +220,11 @@ export class UI {
     const snap = (v) => snapDownToStep(schema, v);
     // A maxFn NARROWS the declared range, never widens it — the shape can rule a value out,
     // but it cannot grant one the slider was never meant to offer.
-    if (schema.maxFn) return Math.min(schema.max, snap(schema.maxFn(this.store.params, this.store.model)));
-    // Edge rounding is the deliberate exception: COMMON_SHAPE documents its `max` as a
-    // fallback that a shape-scaled edgeRoundMax is meant to override.
-    if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
-      return Math.max(0.25, snap(this.store.model.edgeRoundMax(this.store.params)));
-    }
+    // reachFn is how far the slider may TRAVEL (the store will raise other params to meet
+    // it); fitFn is what fits right now. Either way it narrows the declared range, never
+    // widens it.
+    const rangeFn = schema.reachFn || schema.fitFn || schema.maxFn;
+    if (rangeFn) return Math.min(schema.max, snap(rangeFn(this.store.params, this.store.model)));
     return schema.max;
   }
 
@@ -291,8 +290,12 @@ export class UI {
     // A flat plate has no meaningful diameter — show its bed footprint instead. Thickness
     // is the plate itself, NOT the bounding box: the box includes the raised labels, and
     // the number that matters is how much bore actually engages the stem.
-    this.sizeReadout.textContent = this.store.isTesting
-      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(PLATE_THICKNESS)} thick`
+    // A model that declares a flat thickness is a plate, not a handle: it has no meaningful
+    // diameter, and its thickness is the plate itself rather than the bounding box (which
+    // includes the raised labels).
+    const flat = this.store.model.flatThickness;
+    this.sizeReadout.textContent = flat != null
+      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(flat)} thick`
       : `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
   }
 }

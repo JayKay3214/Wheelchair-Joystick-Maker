@@ -1,5 +1,8 @@
 import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
 
+/** The tester is a mode, not a style; several modules need to recognise it. */
+export const BORE_TESTER_ID = "boretester";
+
 /**
  * Model registry. Each model describes a wheelchair joystick handle head.
  *
@@ -20,11 +23,13 @@ import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
 
 // ---- shared slider definitions -------------------------------------------------
 
-// Global edge-rounding (fillets sharp outer edges; never touches the bore).
-// `max` here is only a fallback; roundable models with an `edgeRoundMax(params)`
-// function get a dynamic max scaled to the shape (e.g. the top radius).
+// Global edge-rounding (fillets sharp outer edges; never touches the bore). Roundable
+// models scale the ceiling to their own shape via `edgeRoundMax(params)`; 32 is the highest
+// any of them can ask for (Chin Cup, at full rim diameter), so it is the declared max rather
+// than a number the hook has to be allowed to override.
 const COMMON_SHAPE = [
-  { key: "edgeRound", label: "Edge rounding", min: 0, max: 25, step: 0.25, group: "shape", unit: "mm", def: 1 },
+  { key: "edgeRound", label: "Edge rounding", min: 0, max: 32, step: 0.25, group: "shape", unit: "mm", def: 1,
+    fitFn: (p, m) => (m.edgeRoundMax ? Math.max(0.25, m.edgeRoundMax(p)) : 32) },
 ];
 
 // Common stem + bore controls appended to every model.
@@ -35,30 +40,41 @@ const STEM_PARAMS = [
 
 const STEM_HEIGHT = STEM_PARAMS.find((s) => s.key === "stemHeight");
 
+const BORE_MIN_DEPTH = 2; // shallower than this is not a hole worth cutting
+
 const BORE_PARAMS = [
   { key: "boreDia", label: "Hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
-  // The slider reaches as far as the shape could go with the stem wound all the way out —
-  // NOT as far as the current stem allows. Asking for a deep hole is how you tell the app
-  // to grow the stem, so the slider has to let you ask; the store then raises the stem to
-  // match. Capping at the current stem would make that unreachable.
+  // Three separate jobs, so three separate hooks — one `maxFn` doing all of them is how the
+  // slider ended up promising depth the model never built:
   //
-  // 45 mm stays the hard ceiling on top of that. Powerchair handles are built to grip a
-  // stem of 1" (25.4 mm) or more — Bodypoint's fit both the 4.8 mm (Invacare) and 6.4 mm
-  // (Permobil / Pride / Quantum / Quickie) stems — so 45 is comfortably past any real one,
-  // and roughly triple our own 15-22 mm defaults. A bore deeper than the stem is just
-  // material removed around thin air.
-  // Floor is 0, not 4, so the slider can say "no hole" — on a shape with no room for a bore
-  // it now reads 0 and the part really has none, instead of reading 4 over a part that
-  // hasn't got one.
+  //   reachFn  how far the SLIDER travels: as deep as the shape could go with the stem wound
+  //            all the way out, because asking for a deep hole is how you tell the app to
+  //            grow the stem. Capping at the CURRENT stem would make that unreachable.
+  //   fitFn    what the shape can hold RIGHT NOW. Shortening the stem trims the depth to it.
+  //   growFn   the other direction: raise the stem to meet the depth you asked for.
+  //
+  // 45 mm is the hard ceiling over all of it. Powerchair handles are built to grip a stem of
+  // 1" (25.4 mm) or more — Bodypoint's fit both the 4.8 mm (Invacare) and 6.4 mm (Permobil /
+  // Pride / Quantum / Quickie) stems — so 45 is comfortably past any real one, and roughly
+  // triple our own 15-22 mm defaults. A bore deeper than the stem removes material around
+  // thin air.
+  //
+  // Floor is 0 so the slider can say "no hole", and `normalise` collapses everything below
+  // the minimum cuttable depth onto it: between the two there is no hole, and a readout of
+  // "1.0 mm" over a solid part is the exact lie this whole mechanism exists to prevent.
   { key: "boreDepth", label: "Hole depth", min: 0, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16,
-    maxFn: (p, m) => boreDepthCeiling(m, { ...p, stemHeight: STEM_HEIGHT.max }) },
+    reachFn: (p, m) => boreDepthCeiling(m, { ...p, stemHeight: STEM_HEIGHT.max }),
+    fitFn: (p, m) => boreDepthCeiling(m, p),
+    growFn: (p, m) => ({ stemHeight: stemHeightForBore(m, p) }),
+    normalise: (v) => (v < BORE_MIN_DEPTH ? 0 : v) },
 ];
+
+const BORE_DIA = BORE_PARAMS.find((s) => s.key === "boreDia");
 
 // The bore has to stop short of the top of the solid it sits in, or it would blow out
 // through the crown. geometry.js enforces this margin; the two helpers below let the UI
 // see the same limit instead of letting a slider promise depth that never gets built.
 const BORE_HEADROOM = 3; // mm of material left above the bore ceiling
-const BORE_MIN_DEPTH = 2; // shallower than this is not a hole worth cutting
 
 /**
  * Height the bore reaches inside a solid whose top is at `topY` — or NULL when the solid is
@@ -625,7 +641,7 @@ const MODELS = [
   },
 
   {
-    id: "boretester",
+    id: BORE_TESTER_ID,
     label: "Bore Tester",
     icon: ICON.boretester,
     // Not a handle style — reached from the "Print a fit tester" button in the Mounting
@@ -634,6 +650,7 @@ const MODELS = [
     bare: true,       // its own sliders only: no stem, no single bore, no edge rounding
     noProfile: true,  // a flat plate has no meaningful revolved cross-section
     unitMarked: true, // its labels are embossed, so mm/in genuinely reshapes the part
+    flatThickness: PLATE_THICKNESS, // a plate, not a handle: no diameter, fixed thickness
     smoothProfile: false,
     custom: true,
     geometryKind: "boretester",
@@ -641,13 +658,14 @@ const MODELS = [
     // Derived from the handle bore slider rather than restated, so the two can never drift
     // apart — the number you read off the plate has to be typeable into "Hole diameter".
     schema: [
-      { ...BORE_PARAMS[0], label: "Target hole diameter" },
+      { ...BORE_DIA, label: "Target hole diameter" },
     ],
-    fileName: (params, unit) => testerFileName(params, unit),
-    // Placeholder profile so the store stays valid; the custom builder ignores it. Kept
-    // unit-independent on purpose — plateW depends on the label text, and nothing reads it.
+    fileName: (params, unit) => testerFileName(params.boreDia, unit),
+    // Placeholder so the store stays valid. Nothing reads it: the custom builder ignores
+    // profilePoints, the editor is hidden, and boreTopY is only reached via a boreDepth
+    // param this bare schema does not define.
     buildOuterProfile() {
-      return [{ x: 0, y: PLATE_THICKNESS }, { x: 0.5, y: 0, lockY: true }];
+      return [{ x: 0, y: 1 }, { x: 0.5, y: 0, lockY: true }];
     },
   },
 ];

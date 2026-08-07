@@ -45,13 +45,15 @@ const LABEL_DP_IN = Math.max(3, Math.ceil(-Math.log10(SIZE_STEP / MM_PER_IN)));
  * same diameter carrying the same label, which is exactly the confusion this tool exists
  * to remove. Unreachable at the shipped SIZE_COUNT — it only bites if the sweep is widened.
  */
-export function testerSizes(params) {
+function testerSizes(targetDia) {
   const out = [];
   for (let i = 0; i < SIZE_COUNT; i++) {
-    const d = params.boreDia + (i - (SIZE_COUNT - 1) / 2) * SIZE_STEP;
+    const d = targetDia + (i - (SIZE_COUNT - 1) / 2) * SIZE_STEP;
     if (d >= 0.5) out.push(parseFloat(d.toFixed(3)));
   }
-  return out;
+  // A target small enough to drop every size would leave nothing to lay out; keep the
+  // target itself so the plate is always buildable.
+  return out.length ? out : [targetDia];
 }
 
 /**
@@ -63,8 +65,8 @@ export function sizeLabel(d, unit = "mm") {
 }
 
 /** Export filename: the range, in whatever unit the plate is marked in. */
-export function testerFileName(params, unit = "mm") {
-  const sizes = testerSizes(params);
+export function testerFileName(targetDia, unit = "mm") {
+  const sizes = testerSizes(targetDia);
   const range = `${sizeLabel(sizes[0], unit)}-${sizeLabel(sizes[sizes.length - 1], unit)}`;
   return `bore-test_${range}${unit}_step${sizeLabel(SIZE_STEP, unit)}`;
 }
@@ -79,12 +81,12 @@ const SEG7 = {
 };
 
 /** Stroke proportions for a digit of a given cap height. */
-export function glyphMetrics(height) {
+function glyphMetrics(height) {
   return { height, width: height * 0.58, stroke: height * 0.17, gap: height * 0.16 };
 }
 
 /** Width of a rendered label, used to size the cells the plate is laid out from. */
-export function textWidth(text, height) {
+function textWidth(text, height) {
   const g = glyphMetrics(height);
   let w = 0;
   for (const ch of text) w += (ch === "." ? g.stroke : g.width) + g.gap;
@@ -115,7 +117,7 @@ function segmentRects(g, keys) {
  * Every rectangle making up one label, in plate space: centred on `centreU` with its
  * baseline at `baseV`. geometry.js extrudes each of these into a raised box.
  */
-export function labelRects(text, height, centreU, baseV) {
+function labelRects(text, height, centreU, baseV) {
   const g = glyphMetrics(height);
   const out = [];
   let u = centreU - textWidth(text, height) / 2;
@@ -157,8 +159,8 @@ function squarestColumnCount(n, cellW, cellH) {
  * "plate space": u = across (+ right), v = up the page (+ toward the back of the print),
  * origin at the plate centre.
  */
-export function testerPlate(params, unit = "mm") {
-  const sizes = testerSizes(params);
+export function testerPlate(targetDia, unit = "mm") {
+  const sizes = testerSizes(targetDia);
   const n = sizes.length;
   const maxDia = Math.max(...sizes);
   // Inch labels are a character longer ("0.248" vs "6.30"), so the cells — and the plate —
@@ -186,16 +188,15 @@ export function testerPlate(params, unit = "mm") {
       label: sizeLabel(d, unit),
       holeU: u,
       holeV: vTop - HOLE_GAP / 2 - maxDia / 2,
-      labelU: u,                            // label is centred on the hole
-      labelV: vTop - cellH + HOLE_GAP / 2,  // baseline of the label
+      // Finished label geometry: u is the hole's centre, so the text sits under it.
+      rects: labelRects(sizeLabel(d, unit), LABEL_HEIGHT, u, vTop - cellH + HOLE_GAP / 2),
     };
   });
 
   return {
-    sizes, cells, cols, rows, plateW, plateD,
+    cells, plateW, plateD,
     thickness: PLATE_THICKNESS,
     cornerR: CORNER_R,
-    labelH: LABEL_HEIGHT,
     labelRaise: LABEL_RAISE,
     labelSink: LABEL_SINK,
   };

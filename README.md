@@ -71,13 +71,13 @@ to 6.70 and you get:
 - The holes are facetted exactly like a real handle bore, so the fit you measure is the fit you get.
 - The labels follow the mm/inch toggle — in inches the same plate reads `0.248 … 0.280`, at three
   decimals so no two holes share a number.
-- Exports as `bore-test_6.30-7.10mm_step0.10.stl` (or `bore-test_0.248-0.280in.stl` in inches), so a
-  folder of coupons stays readable.
+- Exports as `bore-test_6.30-7.10mm_step0.10.stl`, or `bore-test_0.248-0.280in_step0.004.stl` in
+  inches, so a folder of coupons stays readable.
 
 Print it, push each hole onto your controller's stem, and type the number that grips the way you want
 into **Hole diameter**.
 
-To sweep wider or finer, change `BT_STEP` / `BT_COUNT` in `js/models.js` — the plate re-grids itself
+To sweep wider or finer, change `SIZE_STEP` / `SIZE_COUNT` in `js/boreTester.js` — the plate re-grids itself
 around whatever count you give it.
 
 ## Run locally

@@ -6,7 +6,6 @@ import * as THREE from "three";
 import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
 import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
 
-
 const store = new Store();
 const scene = new SceneManager(document.getElementById("scene-canvas"));
 const ui = new UI(store);

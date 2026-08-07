@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling } from "./models.js";
-import { testerPlate, labelRects } from "./boreTester.js";
+import { testerPlate } from "./boreTester.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -537,7 +537,7 @@ function buildBoreTester(params, opts = {}) {
   const segments = opts.segments || RADIAL_SEGMENTS;
   // Marked in whatever unit is on screen, so the number you read off the print is the one
   // you can type back into Hole diameter without converting it in your head.
-  const S = testerPlate(params, opts.unit);
+  const S = testerPlate(params.boreDia, opts.unit);
   const parts = [buildPlateSolid(S, segments)];
 
   // Each digit stroke is its own little box, sunk slightly INTO the plate top so the two
@@ -545,9 +545,7 @@ function buildBoreTester(params, opts = {}) {
   const z0 = S.thickness - S.labelSink;
   const depth = S.labelRaise + S.labelSink;
   for (const cell of S.cells) {
-    for (const { u0, v0, u1, v1 } of labelRects(cell.label, S.labelH, cell.labelU, cell.labelV)) {
-      parts.push(plateBox(u0, v0, u1, v1, z0, depth));
-    }
+    for (const { u0, v0, u1, v1 } of cell.rects) parts.push(plateBox(u0, v0, u1, v1, z0, depth));
   }
 
   const geometry = mergeGeoms(parts);

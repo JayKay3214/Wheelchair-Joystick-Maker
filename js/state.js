@@ -1,4 +1,4 @@
-import { getModel, defaultParams, fullSchema, MODELS, stemHeightForBore, boreDepthCeiling, snapDownToStep } from "./models.js";
+import { getModel, defaultParams, fullSchema, MODELS, snapDownToStep, BORE_TESTER_ID } from "./models.js";
 
 /**
  * Single source of truth for the app.
@@ -52,7 +52,7 @@ export class Store {
   // get a set of sizes bracketing the diameter you were already using.
 
   get isTesting() {
-    return this.modelId === "boretester";
+    return this.modelId === BORE_TESTER_ID;
   }
 
   enterBoreTester() {
@@ -63,7 +63,7 @@ export class Store {
       profilePoints: this.profilePoints.map((p) => ({ ...p })),
     };
     const seed = this.params.boreDia;
-    this.modelId = "boretester";
+    this.modelId = BORE_TESTER_ID;
     this.params = defaultParams(this.model);
     if (seed != null) {
       const s = this._schemaFor("boreDia");
@@ -98,27 +98,32 @@ export class Store {
     this.profilePoints = this.model.buildOuterProfile(this.params).map((p) => ({ ...p }));
   }
 
-  // Keep params within any dynamic ceilings (edge rounding vs top radius, wall length
-  // vs base length, ...).
+  /**
+   * Hold every param inside what its shape can actually build. Each rule is declared on the
+   * slider it belongs to (models.js) and applied generically here, so the store names no
+   * params of its own:
+   *
+   *   fitFn      the ceiling right now (edge rounding vs top radius, wall length vs base
+   *              length, hole depth vs the solid it sits in)
+   *   normalise  a last word on the value — used where a range is meaningful but a
+   *              sub-range inside it is not
+   *
+   * A ceiling never widens a slider past its declared max, and the clamped value always
+   * lands on the slider's own step grid: a ceiling derived from a shape is an arbitrary real
+   * number, and dropping it in raw leaves the readout showing digits the handle can't sit on.
+   */
   _clampDynamic() {
     const m = this.model;
-    if (m.edgeRoundMax && this.params.edgeRound != null) {
-      const mx = Math.max(0.25, m.edgeRoundMax(this.params));
-      if (this.params.edgeRound > mx) this.params.edgeRound = mx;
-    }
     for (const s of fullSchema(m)) {
-      if (s.maxFn && this.params[s.key] != null) {
-        // Never below the slider's own floor, and land on its step grid — a ceiling can be
-        // any real number (the bore's is derived from the shape), and dropping it in raw
-        // would leave the readout showing digits the handle can't sit on.
-        // A maxFn narrows the declared range, never widens it (see UI._dynamicMax).
-        const mx = Math.max(s.min, Math.min(s.max, s.maxFn(this.params, m)));
-        if (this.params[s.key] > mx) {
-          this.params[s.key] = snapDownToStep(s, mx);
-        }
+      let v = this.params[s.key];
+      if (v == null) continue;
+      const ceilFn = s.fitFn || s.maxFn;
+      if (ceilFn) {
+        const mx = Math.max(s.min, Math.min(s.max, ceilFn(this.params, m)));
+        if (v > mx) v = snapDownToStep(s, mx);
       }
+      this.params[s.key] = s.normalise ? s.normalise(v) : v;
     }
-    this._trimBoreToFit();
   }
 
   /** The active model's schema entry for a slider key. */
@@ -126,40 +131,27 @@ export class Store {
     return fullSchema(this.model).find((s) => s.key === key);
   }
 
-  /**
-   * Pull the hole depth back to what the shape can actually hold. The partner to
-   * _growStemForBore: shortening the stem — or shrinking the head the bore runs up into —
-   * has to take the depth down with it, or the slider would keep claiming depth that never
-   * gets built. Runs after the maxFn pass, so it sees settled values.
-   */
-  _trimBoreToFit() {
-    const schema = this._schemaFor("boreDepth");
-    if (!schema || this.params.boreDepth == null) return;
-    const ceiling = boreDepthCeiling(this.model, this.params);
-    if (this.params.boreDepth > ceiling) {
-      this.params.boreDepth = snapDownToStep(schema, ceiling);
-    }
-  }
-
   setParam(key, value) {
     this.params[key] = value;
-    // Asking for a deeper hole grows the stem to hold it rather than silently ignoring the
-    // extra depth. Only on a bore-depth edit: doing it in _clampDynamic would make the stem
-    // spring straight back every time you tried to shorten it.
-    if (key === "boreDepth") this._growStemForBore();
+    // A slider may declare that raising it should carry another one up with it — asking for
+    // a deeper hole grows the stem to hold it, rather than silently ignoring the extra
+    // depth. Only on an edit to that slider: doing it inside _clampDynamic would make the
+    // stem spring straight back every time you tried to shorten it.
+    const schema = this._schemaFor(key);
+    if (schema && schema.growFn) this._grow(schema.growFn(this.params, this.model));
     this._clampDynamic();
     this.rebuildProfile();
     this._emit("param");
   }
 
-  /** Raise the stem (as far as its slider goes) so the requested hole depth fits. */
-  _growStemForBore() {
-    const schema = this._schemaFor("stemHeight");
-    if (!schema || this.params.stemHeight == null || this.params.boreDepth == null) return;
-    const need = stemHeightForBore(this.model, this.params);
-    if (need <= this.params.stemHeight) return;
-    const snapped = Math.ceil(need / schema.step) * schema.step;
-    this.params.stemHeight = Math.min(Math.max(snapped, schema.min), schema.max);
+  /** Raise other params to the minimums a growFn asks for, as far as their sliders go. */
+  _grow(needs) {
+    for (const [key, need] of Object.entries(needs)) {
+      const s = this._schemaFor(key);
+      if (!s || this.params[key] == null || need <= this.params[key]) continue;
+      const snapped = Math.ceil(need / s.step) * s.step;
+      this.params[key] = Math.min(Math.max(snapped, s.min), s.max);
+    }
   }
 
   /** Reset one slider to its default value. */
