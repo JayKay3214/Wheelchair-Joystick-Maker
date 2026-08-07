@@ -136,6 +136,31 @@ function ensureOutwardWinding(geometry) {
   }
 }
 
+/**
+ * Push one triangle onto a flat position array, wound so its normal points toward `out`.
+ * Shared by every hand-built (non-lathe) solid here — the goal-post tabs, the oval saddle
+ * and the bore-tester plate all assemble themselves as triangle soup and need the same
+ * "which way round does this face go" decision.
+ *
+ * `a`, `b`, `c` and `out` are plain [x, y, z] arrays; `out` need not be normalised.
+ */
+function pushTri(T, a, b, c, out) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const n0 = uy * vz - uz * vy, n1 = uz * vx - ux * vz, n2 = ux * vy - uy * vx;
+  if (n0 * out[0] + n1 * out[1] + n2 * out[2] >= 0) {
+    T.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  } else {
+    T.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
+  }
+}
+
+/** Push a quad as two triangles, both wound toward `out`. */
+function pushQuad(T, a, b, c, d, out) {
+  pushTri(T, a, b, c, out);
+  pushTri(T, a, c, d, out);
+}
+
 /** Concatenate geometries into one non-indexed BufferGeometry, preserving each part's
  * own normals (so a smooth-shaded part stays smooth and a faceted part stays faceted). */
 function mergeGeoms(list) {
@@ -242,18 +267,8 @@ function buildOvalBase(P) {
   const hasWall = P.wallHeight > 0.1 && P.wallLen > 1;
   const half = P.wallLen / 2;
   const T = []; // non-indexed triangle soup (watertightness verified by quantised coords)
-  const cross = (a, b, c) => {
-    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-    return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
-  };
-  // push one triangle, winding it so its normal points toward `out`
-  const tri = (a, b, c, out) => {
-    const n = cross(a, b, c);
-    if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] >= 0) T.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-    else T.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
-  };
-  const quad = (a, b, c, d, out) => { tri(a, b, c, out); tri(a, c, d, out); };
+  const tri = (a, b, c, out) => pushTri(T, a, b, c, out);
+  const quad = (a, b, c, d, out) => pushQuad(T, a, b, c, d, out);
   const UP = [0, 1, 0], DN = [0, -1, 0];
   const eT = (x, z) => [x, gpOvalMid(P, x, z) + P.halfThick, z]; // oval top surface point
   const eB = (x, z) => [x, gpOvalMid(P, x, z) - P.halfThick, z]; // oval bottom surface point
@@ -428,9 +443,10 @@ function buildTBar(params, opts = {}) {
 // z = thickness) and rotated flat at the end, so the labels read the right way up when
 // you look down at the plate — in the viewport and in the slicer.
 //
-// The plate is a single ExtrudeGeometry with the holes as Shape holes, so it is
-// watertight by construction. Each label segment is its own little box that sinks
-// slightly INTO the plate top, the same fuse-two-solids trick the stems use.
+// The plate is hand-built triangle soup — caps from ShapeUtils.triangulateShape, one wall
+// quad per contour edge (see buildPlateSolid for why ExtrudeGeometry can't do it). Each
+// label segment is its own little box that sinks slightly INTO the plate top, the same
+// fuse-two-solids trick the stems use.
 
 // 7-segment glyphs: no font file to load (the app stays buildless), legible down to
 // ~3 mm, and every stroke is a rectangle so it slices and prints cleanly.
@@ -516,13 +532,7 @@ function buildPlateSolid(S, segments) {
   const all = [...outer, ...holes.flat()]; // index space the faces refer to
 
   const T = [];
-  const tri = (a, b, c, out) => {
-    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
-    if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] >= 0) T.push(...a, ...b, ...c);
-    else T.push(...a, ...c, ...b);
-  };
+  const tri = (a, b, c, out) => pushTri(T, a, b, c, out);
 
   const top = S.thickness, bot = 0;
   const UP = [0, 0, 1], DN = [0, 0, -1];

@@ -1,4 +1,4 @@
-import { getModel, defaultParams, fullSchema } from "./models.js";
+import { getModel, defaultParams, fullSchema, MODELS, stemHeightForBore, boreDepthCeiling } from "./models.js";
 
 /**
  * Single source of truth for the app.
@@ -39,8 +39,7 @@ export class Store {
   setModel(id, silent = false) {
     this._parked = null; // picking a style outright discards any parked tester state
     this.modelId = id;
-    this.model_ = getModel(id);
-    this.params = defaultParams(this.model_);
+    this.params = defaultParams(this.model);
     this._clampDynamic(); // defaults may exceed a dynamic ceiling (e.g. wall length vs corners)
     this.rebuildProfile();
     if (!silent) this._emit("model");
@@ -75,8 +74,17 @@ export class Store {
     this._emit("model");
   }
 
+  /**
+   * Leave the tester. Total by design: if there is nothing parked (the tester was entered
+   * some way that skipped enterBoreTester) this falls back to a real handle rather than
+   * returning early, because the style picker is hidden while testing — a silent no-op
+   * here would strand the user in a mode with no way out.
+   */
   exitBoreTester() {
-    if (!this._parked) return;
+    if (!this._parked) {
+      this.setModel(MODELS[0].id);
+      return;
+    }
     const { modelId, params, profilePoints } = this._parked;
     this._parked = null;
     this.modelId = modelId;
@@ -100,17 +108,58 @@ export class Store {
     }
     for (const s of fullSchema(m)) {
       if (s.maxFn && this.params[s.key] != null) {
-        const mx = s.maxFn(this.params);
-        if (this.params[s.key] > mx) this.params[s.key] = mx;
+        // Never below the slider's own floor, and land on its step grid — a ceiling can be
+        // any real number (the bore's is derived from the shape), and dropping it in raw
+        // would leave the readout showing digits the handle can't sit on.
+        const mx = Math.max(s.min, s.maxFn(this.params, m));
+        if (this.params[s.key] > mx) {
+          this.params[s.key] = this._snapDown(mx, s);
+        }
       }
+    }
+    this._trimBoreToFit();
+  }
+
+  /** Round a ceiling down onto a slider's own step grid, never below its floor. */
+  _snapDown(value, schema) {
+    const stepped = Math.max(schema.min, Math.floor(value / schema.step) * schema.step);
+    return parseFloat(stepped.toFixed(6));
+  }
+
+  /**
+   * Pull the hole depth back to what the shape can actually hold. The partner to
+   * _growStemForBore: shortening the stem — or shrinking the head the bore runs up into —
+   * has to take the depth down with it, or the slider would keep claiming depth that never
+   * gets built. Runs after the maxFn pass, so it sees settled values.
+   */
+  _trimBoreToFit() {
+    const schema = fullSchema(this.model).find((s) => s.key === "boreDepth");
+    if (!schema || this.params.boreDepth == null) return;
+    const ceiling = boreDepthCeiling(this.model, this.params);
+    if (this.params.boreDepth > ceiling) {
+      this.params.boreDepth = this._snapDown(ceiling, schema);
     }
   }
 
   setParam(key, value) {
     this.params[key] = value;
+    // Asking for a deeper hole grows the stem to hold it rather than silently ignoring the
+    // extra depth. Only on a bore-depth edit: doing it in _clampDynamic would make the stem
+    // spring straight back every time you tried to shorten it.
+    if (key === "boreDepth") this._growStemForBore();
     this._clampDynamic();
     this.rebuildProfile();
     this._emit("param");
+  }
+
+  /** Raise the stem (as far as its slider goes) so the requested hole depth fits. */
+  _growStemForBore() {
+    const schema = fullSchema(this.model).find((s) => s.key === "stemHeight");
+    if (!schema || this.params.stemHeight == null || this.params.boreDepth == null) return;
+    const need = stemHeightForBore(this.model, this.params);
+    if (need <= this.params.stemHeight) return;
+    const snapped = Math.ceil(need / schema.step) * schema.step;
+    this.params.stemHeight = Math.min(Math.max(snapped, schema.min), schema.max);
   }
 
   /** Reset one slider to its default value. */

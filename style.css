@@ -310,6 +310,12 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 8px;
 }
+/* Sidebar-level toolbar: sits under the tagline and stays put whichever panels are on
+   screen, so nothing has to be re-parented when the bore tester takes over. */
+.sidebar-header .title-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
 .mini-btn {
   background: var(--bg-input);
   border: 1px solid var(--border);

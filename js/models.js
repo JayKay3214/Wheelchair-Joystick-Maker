@@ -31,10 +31,46 @@ const STEM_PARAMS = [
   { key: "stemHeight", label: "Stem height", min: 0, max: 35, step: 0.5, group: "shape", unit: "mm", def: 10 },
 ];
 
+const STEM_HEIGHT = STEM_PARAMS.find((s) => s.key === "stemHeight");
+
 const BORE_PARAMS = [
   { key: "boreDia", label: "Hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
-  { key: "boreDepth", label: "Hole depth", min: 4, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16 },
+  // The slider reaches as far as the shape could go with the stem wound all the way out —
+  // NOT as far as the current stem allows. Asking for a deep hole is how you tell the app
+  // to grow the stem, so the slider has to let you ask; the store then raises the stem to
+  // match. Capping at the current stem would make that unreachable.
+  { key: "boreDepth", label: "Hole depth", min: 4, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16,
+    maxFn: (p, m) => boreDepthCeiling(m, { ...p, stemHeight: STEM_HEIGHT.max }) },
 ];
+
+// The bore has to stop short of the top of the solid it sits in, or it would blow out
+// through the crown. geometry.js enforces this margin; the two helpers below let the UI
+// see the same limit instead of letting a slider promise depth that never gets built.
+const BORE_HEADROOM = 3; // mm of material left above the bore ceiling
+
+/**
+ * Top of the solid the bore runs up into, in mm above the bed. For revolution handles that
+ * is the crown of the head; for the swept ones (Goal Posts, T-Bar) the bore lives in the
+ * stem, so it is the stem top. Every model's profile starts at that point, which is the
+ * same value geometry.js measures against.
+ */
+function boreTopY(model, params) {
+  return model.buildOuterProfile(params)[0].y;
+}
+
+/** Deepest hole this model can actually build at its current settings. */
+export function boreDepthCeiling(model, params) {
+  return boreTopY(model, params) - BORE_HEADROOM;
+}
+
+/**
+ * Stem height needed to hold a given hole depth. The head sits on top of the stem, so the
+ * room above the stem is fixed and the stem makes up the difference.
+ */
+export function stemHeightForBore(model, params) {
+  const headroom = boreTopY(model, params) - params.stemHeight;
+  return params.boreDepth + BORE_HEADROOM - headroom;
+}
 
 // Helper: stem side of the silhouette (head junction -> bed). Always ends at y=0.
 function stemTail(stemR, stemHeight) {
@@ -308,31 +344,63 @@ export function tbarShape(p) {
 // winner off the plate. Widening the sweep is a matter of changing these two numbers.
 // Nine also happens to tile as a perfect 3x3, which is why it beats seven: same plate size,
 // no half-empty row, two extra sizes free.
-export const BT_STEP = 0.1;   // mm between adjacent sizes
-export const BT_COUNT = 9;    // odd, so the target lands dead centre
+const BT_STEP = 0.1;   // mm between adjacent sizes
+const BT_COUNT = 9;    // odd, so the target lands dead centre
 
 // Plate proportions. All fixed: they suit any printer, and none of them change what the
 // test actually measures.
-const BT_PLATE_THK = 8;    // plate thickness = how much bore the stem engages
+export const BT_PLATE_THK = 8; // plate thickness = how much bore the stem engages
 const BT_HOLE_GAP = 6;     // material between neighbouring holes
 const BT_LABEL_SIZE = 5;   // label cap height
 const BT_LABEL_RAISE = 0.6; // how far the labels stand off the plate
 const BT_CORNER_R = 3;     // plate corner radius
 const BT_LABEL_SINK = 0.3; // how far the raised label sinks into the plate so the two fuse
+// Cost added per empty cell when picking the grid, in units of aspect ratio. Enough to
+// break a near-tie toward a grid that comes out full (nine lands on an exact 3x3).
+const BT_EMPTY_CELL_COST = 0.15;
 
-/** The candidate diameters, ascending, centred on the target. */
+/**
+ * The column count whose grid comes out closest to square. Cells are usually wider than
+ * they are deep — the label sets the width, not the hole — so this isn't ceil(sqrt(n)).
+ */
+function squarestColumnCount(n, cellW, cellH) {
+  let best = n, bestScore = Infinity;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const w = cols * cellW, d = rows * cellH;
+    const score = Math.max(w, d) / Math.min(w, d) + (cols * rows - n) * BT_EMPTY_CELL_COST;
+    if (score < bestScore) { bestScore = score; best = cols; }
+  }
+  return best;
+}
+
+/**
+ * The candidate diameters, ascending, centred on the target. A size that would come out
+ * below 0.5 mm is DROPPED rather than clamped: clamping would emit several holes of the
+ * same diameter carrying the same label, which is exactly the confusion this tool exists
+ * to remove. Unreachable at the shipped BT_COUNT — it only bites if the sweep is widened.
+ */
 export function boreTesterSizes(p) {
   const out = [];
   for (let i = 0; i < BT_COUNT; i++) {
     const d = p.boreDia + (i - (BT_COUNT - 1) / 2) * BT_STEP;
-    out.push(parseFloat(Math.max(0.5, d).toFixed(3)));
+    if (d >= 0.5) out.push(parseFloat(d.toFixed(3)));
   }
   return out;
 }
 
-/** Label text for a diameter — always 2 dp so 6.7 reads as "6.70" next to "6.75". */
+// Label precision follows the step, so two adjacent holes can never print the same number.
+const BT_LABEL_DP = Math.max(2, Math.ceil(-Math.log10(BT_STEP)));
+
+/** Label text for a diameter — 6.7 reads as "6.70" so it lines up next to "6.75". */
 export function btLabel(d) {
-  return d.toFixed(2);
+  return d.toFixed(BT_LABEL_DP);
+}
+
+/** Export filename for a tester plate: the range and step, so a folder of coupons reads. */
+export function boreTesterFileName(p) {
+  const s = boreTesterSizes(p);
+  return `bore-test_${btLabel(s[0])}-${btLabel(s[s.length - 1])}_step${BT_STEP.toFixed(2)}`;
 }
 
 // 7-segment glyph metrics, all proportional to the label height. 7-segment digits need no
@@ -369,17 +437,7 @@ export function boreTesterShape(p) {
   const cellW = Math.max(maxDia, labelW) + gap;
   const cellH = maxDia + labelH + 1.5 * gap;
 
-  // Pick the column count giving the squarest plate. Cells are usually wider than they are
-  // deep (the label sets the width, not the hole), so this isn't simply ceil(sqrt(n)). A
-  // small penalty per empty cell breaks near-ties toward a grid that comes out full — at
-  // the default nine that lands on an exact 3x3.
-  let cols = n, bestScore = Infinity;
-  for (let c = 1; c <= n; c++) {
-    const r = Math.ceil(n / c);
-    const w = c * cellW, d = r * cellH;
-    const score = Math.max(w, d) / Math.min(w, d) + (c * r - n) * 0.15;
-    if (score < bestScore) { bestScore = score; cols = c; }
-  }
+  const cols = squarestColumnCount(n, cellW, cellH);
   const rows = Math.ceil(n / cols);
   const plateW = cols * cellW;
   const plateD = rows * cellH;
@@ -606,7 +664,8 @@ const MODELS = [
       // Front-to-back length of the walls, capped to the base length via maxFn.
       { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, maxFn: (p) => p.baseLength },
     ],
-    defaults: { stemDia: 14, stemHeight: 20, boreDepth: 22 },
+    // 21 mm is exactly what a 20 mm stem holds; 22 used to be requested and quietly trimmed.
+    defaults: { stemDia: 14, stemHeight: 20, boreDepth: 21 },
     // Placeholder profile so the store stays valid; the custom builder ignores it.
     buildOuterProfile(p) {
       const S = goalPostShape(p);
@@ -674,10 +733,10 @@ const MODELS = [
     custom: true,
     geometryKind: "boretester",
     // One decision: the size you're aiming at. Everything else about the plate is fixed.
-    // Same key/range/step as every handle's "Hole diameter", so the number carries
-    // straight over between the tester and the handle you are designing.
+    // Derived from the handle bore slider rather than restated, so the two can never drift
+    // apart — the number you read off the plate has to be typeable into "Hole diameter".
     schema: [
-      { key: "boreDia", label: "Target hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
+      { ...BORE_PARAMS[0], label: "Target hole diameter" },
     ],
     // Placeholder profile so the store stays valid; the custom builder ignores it.
     buildOuterProfile(p) {

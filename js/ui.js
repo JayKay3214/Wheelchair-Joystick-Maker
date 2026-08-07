@@ -1,4 +1,4 @@
-import { MODELS, fullSchema } from "./models.js";
+import { MODELS, fullSchema, BT_PLATE_THK } from "./models.js";
 
 const MM_PER_IN = 25.4;
 
@@ -42,9 +42,9 @@ function snapClamp(schema, value, max) {
   return parseFloat(clamped.toFixed(6));
 }
 
-// Hint text swapped in and out with the bore-tester mode.
-const HANDLE_HINT =
-  'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4") stem. Print a test fit before committing.';
+// Swapped in under the Mounting Hole panel while the tester is on screen. The handle-mode
+// hint it replaces lives in index.html and is read back out of the DOM on startup, so the
+// markup stays the single home for that copy.
 const TESTER_HINT =
   "Nine holes, 0.1&nbsp;mm apart, centred on your target. Print the plate and push each hole onto your controller stem — whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
 
@@ -55,6 +55,8 @@ export class UI {
     this.shapeControls = document.getElementById("shape-controls");
     this.mountControls = document.getElementById("mount-controls");
     this.sizeReadout = document.getElementById("size-readout");
+    this.mountHint = document.getElementById("mount-hint");
+    this.handleHint = this.mountHint ? this.mountHint.innerHTML : "";
     this.sliderEls = new Map(); // key -> { input, value, schema }
 
     this._buildModelPicker();
@@ -202,9 +204,13 @@ export class UI {
   // Some sliders have a dynamic ceiling that depends on other params (e.g. edge rounding
   // scaled to the top radius, or wall length capped to the base length).
   _dynamicMax(schema) {
-    if (schema.maxFn) return Math.max(schema.min, schema.maxFn(this.store.params));
+    // Snapped onto the slider's own step grid: a computed ceiling is an arbitrary real
+    // number (the bore's comes out of the shape), and an off-grid max leaves the readout
+    // showing digits the handle can never land on.
+    const snap = (v) => Math.max(schema.min, parseFloat((Math.floor(v / schema.step) * schema.step).toFixed(6)));
+    if (schema.maxFn) return snap(schema.maxFn(this.store.params, this.store.model));
     if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
-      return Math.max(0.25, this.store.model.edgeRoundMax(this.store.params));
+      return Math.max(0.25, snap(this.store.model.edgeRoundMax(this.store.params)));
     }
     return schema.max;
   }
@@ -224,29 +230,30 @@ export class UI {
   }
 
   /**
-   * The bore tester borrows the sidebar rather than adding a whole second one: the style
-   * picker, the shape panel and the profile editor have nothing to say about a flat test
-   * plate, so they step aside and the tester's sliders take over the Mounting Hole panel.
-   * "Reset all" and the mm/in toggle move across to whichever panel heading is on screen.
+   * Show only the panels the active model has something to say about. The two conditions
+   * are the model's OWN declared flags rather than "are we in the tester", so the flags in
+   * models.js are what actually drives the layout:
+   *
+   *   bare      -> defines its whole schema itself, so there is no separate Shape section
+   *   noProfile -> has no revolved cross-section, so the profile editor means nothing
+   *
+   * The style picker is the one genuinely mode-specific case: the tester is not a handle
+   * style, so offering the picker while it is on screen would be a trap.
    */
   _applyMode() {
+    const model = this.store.model;
     const testing = this.store.isTesting;
     const hide = (id, v) => {
       const el = document.getElementById(id);
       if (el) el.classList.toggle("is-hidden", v);
     };
     hide("style-panel", testing);
-    hide("shape-panel", testing);
-    hide("profile-panel", testing);
-
-    const actions = document.getElementById("title-actions");
-    const row = document.getElementById(testing ? "mount-title-row" : "shape-title-row");
-    if (actions && row && actions.parentElement !== row) row.appendChild(actions);
+    hide("shape-panel", !!model.bare);
+    hide("profile-panel", !!model.noProfile);
 
     const title = document.getElementById("mount-title");
     if (title) title.textContent = testing ? "Bore Fit Tester" : "Mounting Hole";
-    const hint = document.getElementById("mount-hint");
-    if (hint) hint.innerHTML = testing ? TESTER_HINT : HANDLE_HINT;
+    if (this.mountHint) this.mountHint.innerHTML = testing ? TESTER_HINT : this.handleHint;
     if (this.testerBtn) {
       this.testerBtn.textContent = testing ? "← Back to handle" : "Print a fit tester";
       this.testerBtn.classList.toggle("is-active", testing);
@@ -267,9 +274,11 @@ export class UI {
     this._lastDims = dims;
     const u = this.store.unit;
     const fmt = (v) => (u === "in" ? `${(v / MM_PER_IN).toFixed(2)}″` : `${v.toFixed(1)} mm`);
-    // A flat plate has no meaningful diameter — show its bed footprint instead.
+    // A flat plate has no meaningful diameter — show its bed footprint instead. Thickness
+    // is the plate itself, NOT the bounding box: the box includes the raised labels, and
+    // the number that matters is how much bore actually engages the stem.
     this.sizeReadout.textContent = this.store.isTesting
-      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(dims.height)} thick`
+      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(BT_PLATE_THK)} thick`
       : `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
   }
 }

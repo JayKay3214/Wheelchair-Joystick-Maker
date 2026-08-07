@@ -5,7 +5,7 @@ import { ProfileEditor } from "./profileEditor.js";
 import * as THREE from "three";
 import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
 import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
-import { boreTesterSizes, BT_STEP } from "./models.js";
+import { boreTesterFileName } from "./models.js";
 
 const store = new Store();
 const scene = new SceneManager(document.getElementById("scene-canvas"));
@@ -55,13 +55,8 @@ viewBtn.addEventListener("click", () => {
 });
 
 // ---- export -------------------------------------------------------------------
-// The tester's filename carries the range and step, so a folder of coupons stays readable.
 function fileName() {
-  if (store.isTesting) {
-    const s = boreTesterSizes(store.params);
-    return `bore-test_${s[0].toFixed(2)}-${s[s.length - 1].toFixed(2)}_step${BT_STEP.toFixed(2)}`;
-  }
-  return `joystick-${store.modelId}`;
+  return store.isTesting ? boreTesterFileName(store.params) : `joystick-${store.modelId}`;
 }
 document.getElementById("export-stl").addEventListener("click", () => {
   if (scene.mesh) exportSTL(scene.mesh.geometry, fileName());

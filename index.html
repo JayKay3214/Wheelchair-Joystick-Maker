@@ -31,6 +31,15 @@
       <header class="sidebar-header">
         <h1>Joystick Maker</h1>
         <p class="tagline">Custom wheelchair joystick handles, ready to print.</p>
+        <!-- Sidebar-level so it stays put whichever panels are on screen: units are a
+             global preference, and Reset all applies to whatever is active. -->
+        <div class="title-actions">
+          <button type="button" id="reset-values" class="mini-btn" title="Reset all sliders to defaults">Reset all</button>
+          <div class="unit-toggle" role="radiogroup" aria-label="Display units">
+            <button type="button" data-unit="mm" class="unit-btn is-active">mm</button>
+            <button type="button" data-unit="in" class="unit-btn">in</button>
+          </div>
+        </div>
       </header>
 
       <!-- Model picker -->
@@ -41,24 +50,13 @@
 
       <!-- Dynamic slider sections injected by ui.js -->
       <section class="panel" id="shape-panel">
-        <div class="panel-title-row" id="shape-title-row">
-          <h2 class="panel-title">Shape</h2>
-          <div class="title-actions" id="title-actions">
-            <button type="button" id="reset-values" class="mini-btn" title="Reset all sliders to defaults">Reset all</button>
-            <div class="unit-toggle" role="radiogroup" aria-label="Display units">
-              <button type="button" data-unit="mm" class="unit-btn is-active">mm</button>
-              <button type="button" data-unit="in" class="unit-btn">in</button>
-            </div>
-          </div>
-        </div>
+        <h2 class="panel-title">Shape</h2>
         <div id="shape-controls"></div>
         <p class="hint">Tip: double-click a slider to reset just that value.</p>
       </section>
 
       <section class="panel" id="mount-panel">
-        <div class="panel-title-row" id="mount-title-row">
-          <h2 class="panel-title" id="mount-title">Mounting Hole</h2>
-        </div>
+        <h2 class="panel-title" id="mount-title">Mounting Hole</h2>
         <div id="mount-controls"></div>
         <button type="button" id="bore-tester-toggle" class="btn btn-ghost">Print a fit tester</button>
         <p class="hint" id="mount-hint">Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4&quot;) stem. Print a test fit before committing.</p>
