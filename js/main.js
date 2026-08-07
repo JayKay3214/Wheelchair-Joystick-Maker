@@ -5,7 +5,7 @@ import { ProfileEditor } from "./profileEditor.js";
 import * as THREE from "three";
 import { buildKnobMesh, buildKnobGeometry, meshDimensions, material, STEP_SEGMENTS } from "./geometry.js";
 import { exportSTL, exportOBJ, exportSTEP } from "./exporter.js";
-import { boreTesterSizes } from "./models.js";
+import { boreTesterSizes, BT_STEP } from "./models.js";
 
 const store = new Store();
 const scene = new SceneManager(document.getElementById("scene-canvas"));
@@ -59,7 +59,7 @@ viewBtn.addEventListener("click", () => {
 function fileName() {
   if (store.isTesting) {
     const s = boreTesterSizes(store.params);
-    return `bore-test_${s[0].toFixed(2)}-${s[s.length - 1].toFixed(2)}_step${store.params.sizeStep.toFixed(2)}`;
+    return `bore-test_${s[0].toFixed(2)}-${s[s.length - 1].toFixed(2)}_step${BT_STEP.toFixed(2)}`;
   }
   return `joystick-${store.modelId}`;
 }

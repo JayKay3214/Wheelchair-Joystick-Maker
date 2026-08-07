@@ -302,15 +302,27 @@ export function tbarShape(p) {
 // you want, then type that number into the handle's "Hole diameter". The set is always an
 // ODD count centred on the target, so the middle hole is exactly what you asked for.
 
-const BT_CORNER_R = 3;   // plate corner radius (mm)
+// The sweep is fixed rather than exposed as sliders: target ±0.3 mm in 0.1 mm steps is
+// exactly the adjustment range this tool tells you to try, and it keeps the tester a
+// one-decision job — set the size you're aiming at, print, read the winner off the plate.
+// Widening the sweep is a matter of changing these two numbers.
+export const BT_STEP = 0.1;   // mm between adjacent sizes
+export const BT_COUNT = 7;    // odd, so the target lands dead centre
+
+// Plate proportions. All fixed: they suit any printer, and none of them change what the
+// test actually measures.
+const BT_PLATE_THK = 8;    // plate thickness = how much bore the stem engages
+const BT_HOLE_GAP = 6;     // material between neighbouring holes
+const BT_LABEL_SIZE = 5;   // label cap height
+const BT_LABEL_RAISE = 0.6; // how far the labels stand off the plate
+const BT_CORNER_R = 3;     // plate corner radius
 const BT_LABEL_SINK = 0.3; // how far the raised label sinks into the plate so the two fuse
 
 /** The candidate diameters, ascending, centred on the target. */
 export function boreTesterSizes(p) {
-  const n = Math.max(1, Math.round(p.sizeCount));
   const out = [];
-  for (let i = 0; i < n; i++) {
-    const d = p.boreDia + (i - (n - 1) / 2) * p.sizeStep;
+  for (let i = 0; i < BT_COUNT; i++) {
+    const d = p.boreDia + (i - (BT_COUNT - 1) / 2) * BT_STEP;
     out.push(parseFloat(Math.max(0.5, d).toFixed(3)));
   }
   return out;
@@ -335,20 +347,21 @@ export function btTextWidth(str, h) {
 }
 
 /**
- * Plate layout. Cells are laid out left-to-right, smallest first, wrapping to extra rows
- * once a single row would get long and skinny. Each cell holds one hole with its label
- * underneath. Everything is in "plate space": u = across (+ right), v = up the page
- * (+ toward the back of the print), origin at the plate centre.
+ * Plate layout. Cells are laid out left-to-right, smallest first — a size ladder reads
+ * best in one row, so it stays a row while it fits comfortably on a bed and only wraps
+ * into a grid if BT_COUNT is raised well past the default. Each cell holds one hole with
+ * its label underneath. Everything is in "plate space": u = across (+ right), v = up the
+ * page (+ toward the back of the print), origin at the plate centre.
  */
 export function boreTesterShape(p) {
   const sizes = boreTesterSizes(p);
   const n = sizes.length;
-  const cols = n <= 6 ? n : Math.max(3, Math.ceil(Math.sqrt(n)));
+  const cols = n <= 8 ? n : Math.max(4, Math.ceil(n / Math.ceil(n / 4)));
   const rows = Math.ceil(n / cols);
 
   const maxDia = Math.max(...sizes);
-  const gap = p.holeGap;
-  const labelH = p.labelSize;
+  const gap = BT_HOLE_GAP;
+  const labelH = BT_LABEL_SIZE;
   const labelW = Math.max(...sizes.map((d) => btTextWidth(btLabel(d), labelH)));
 
   // A cell is as wide as its widest content plus one full gap, so neighbouring holes
@@ -376,10 +389,10 @@ export function boreTesterShape(p) {
 
   return {
     sizes, cells, cols, rows, plateW, plateD,
-    thickness: p.plateThk,
+    thickness: BT_PLATE_THK,
     cornerR: BT_CORNER_R,
     labelH,
-    labelRaise: p.labelRaise,
+    labelRaise: BT_LABEL_RAISE,
     labelSink: BT_LABEL_SINK,
   };
 }
@@ -647,17 +660,11 @@ const MODELS = [
     smoothProfile: false,
     custom: true,
     geometryKind: "boretester",
+    // One decision: the size you're aiming at. Everything else about the plate is fixed.
+    // Same key/range/step as every handle's "Hole diameter", so the number carries
+    // straight over between the tester and the handle you are designing.
     schema: [
-      // Same key/range/step as every handle's "Hole diameter", so the number carries
-      // straight over between the tester and the handle you are designing.
       { key: "boreDia", label: "Target hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
-      { key: "sizeStep", label: "Step between sizes", min: 0.05, max: 0.5, step: 0.05, group: "mount", unit: "mm", def: 0.1 },
-      // Step 2 from an odd minimum keeps the count odd, which keeps the target dead centre.
-      { key: "sizeCount", label: "Number of sizes", min: 3, max: 15, step: 2, group: "mount", unit: "n", def: 5 },
-      { key: "plateThk", label: "Plate thickness", min: 3, max: 20, step: 0.5, group: "mount", unit: "mm", def: 8 },
-      { key: "holeGap", label: "Spacing between holes", min: 3, max: 20, step: 0.5, group: "mount", unit: "mm", def: 6 },
-      { key: "labelSize", label: "Label size", min: 3, max: 12, step: 0.5, group: "mount", unit: "mm", def: 5 },
-      { key: "labelRaise", label: "Label height", min: 0.2, max: 1.5, step: 0.1, group: "mount", unit: "mm", def: 0.6 },
     ],
     // Placeholder profile so the store stays valid; the custom builder ignores it.
     buildOuterProfile(p) {

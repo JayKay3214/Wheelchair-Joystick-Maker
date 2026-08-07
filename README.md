@@ -48,17 +48,23 @@ Rather than guessing at that ±0.1–0.3 mm, hit **Print a fit tester** under th
 It swaps the viewport for a flat test plate: one true through-hole per candidate diameter, each with
 its size raised beside it in 7-segment digits.
 
-- The set is always an **odd count centred on your target**, so the middle hole is exactly the
-  diameter you asked for. Target 6.70 with a 0.10 step and 5 sizes gives 6.50 · 6.60 · **6.70** ·
-  6.80 · 6.90.
+There is **one control — the target size.** The plate is always seven holes, 0.1 mm apart, centred on
+that target, which is exactly the adjustment range above. Set the target to 6.70 and you get:
+
+```
+6.40 · 6.50 · 6.60 · [6.70] · 6.80 · 6.90 · 7.00      125.6 x 21.0 x 8.6 mm
+```
+
 - The target is seeded from whatever Hole diameter your handle currently has, and **Back to handle**
   restores that handle untouched — style, sliders and profile drags included.
-- Up to 6 sizes sit in one row; beyond that the plate wraps into a grid so it stays compact on the bed.
 - The holes are facetted exactly like a real handle bore, so the fit you measure is the fit you get.
-- Exports as `bore-test_6.50-6.90_step0.10.stl`, so a folder of coupons stays readable.
+- Exports as `bore-test_6.40-7.00_step0.10.stl`, so a folder of coupons stays readable.
 
 Print it, push each hole onto your controller's stem, and type the number that grips the way you want
 into **Hole diameter**.
+
+To sweep wider or finer, change `BT_STEP` / `BT_COUNT` in `js/models.js` — the plate resizes itself,
+and wraps a long run into a grid rather than growing off the bed.
 
 ## Run locally
 

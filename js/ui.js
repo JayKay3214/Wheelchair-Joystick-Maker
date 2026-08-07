@@ -4,7 +4,7 @@ const MM_PER_IN = 25.4;
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
-  return schema.unit !== "deg" && schema.unit !== "x" && schema.unit !== "n";
+  return schema.unit !== "deg" && schema.unit !== "x";
 }
 
 /** Decimal places to show for a length param in mm, based on its slider step. */
@@ -16,13 +16,12 @@ function mmDecimals(schema) {
 function unitSuffix(schema, unit) {
   if (schema.unit === "deg") return "°";
   if (schema.unit === "x") return "×";
-  if (schema.unit === "n") return ""; // a plain count (e.g. number of test sizes)
   return unit === "in" ? "″" : "mm";
 }
 
 /** A stored value (always mm/deg/x internally) as a bare number string in the chosen unit. */
 function displayNumber(schema, value, unit) {
-  if (schema.unit === "deg" || schema.unit === "n") return String(Math.round(value));
+  if (schema.unit === "deg") return String(Math.round(value));
   if (schema.unit === "x") return value.toFixed(2);
   if (unit === "in") return (value / MM_PER_IN).toFixed(3);
   return value.toFixed(mmDecimals(schema));
@@ -47,7 +46,7 @@ function snapClamp(schema, value, max) {
 const HANDLE_HINT =
   'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4") stem. Print a test fit before committing.';
 const TESTER_HINT =
-  "Print this plate, then push each hole onto your controller stem. Whichever one grips the way you want — read its number and type that into Hole diameter on your handle.";
+  "Seven holes, 0.1&nbsp;mm apart, centred on your target. Print the plate and push each hole onto your controller stem — whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
 
 export class UI {
   constructor(store) {
