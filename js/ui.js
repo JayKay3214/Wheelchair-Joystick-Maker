@@ -174,13 +174,16 @@ export class UI {
     const commitTyped = () => {
       const stored = parseToStored(schema, numEl.value, this.store.unit);
       if (stored === null) {
-        this._syncOne(schema.key); // revert junk input to the current value
+        this._syncOne(schema.key, true); // revert junk input to the current value
         return;
       }
-      const v = snapClamp(schema, stored, this._dynamicMax(schema));
-      input.value = v;
-      this.store.setParam(schema.key, v);
-      numEl.value = displayNumber(schema, v, this.store.unit);
+      this.store.setParam(schema.key, snapClamp(schema, stored, this._dynamicMax(schema)));
+      // Read back what the store SETTLED on rather than echoing what we sent. It may have
+      // moved: a hole depth below the shallowest cuttable one normalises to 0, and a shape
+      // may not have room for what was asked. Echoing the request left the number field
+      // claiming a value the model had already rejected, while the slider beside it —
+      // refreshed from the store — showed the truth. The two disagreed on screen.
+      this._syncOne(schema.key, true);
     };
     numEl.addEventListener("change", commitTyped);
     numEl.addEventListener("keydown", (e) => {
@@ -193,8 +196,12 @@ export class UI {
     return wrap;
   }
 
-  // Refresh one control's slider, typed number, and unit label from the store.
-  _syncOne(key) {
+  /**
+   * Refresh one control's slider, typed number and unit label from the store.
+   * `force` overrides the don't-clobber-what-they're-typing guard — used right after a
+   * commit, where the store may have settled on a different value than was typed.
+   */
+  _syncOne(key, force = false) {
     const entry = this.sliderEls.get(key);
     if (!entry) return;
     const { input, num, unit, schema } = entry;
@@ -207,7 +214,7 @@ export class UI {
     num.min = inUnit ? (schema.min / MM_PER_IN).toFixed(3) : schema.min;
     num.max = inUnit ? (max / MM_PER_IN).toFixed(3) : max;
     num.step = inUnit ? 0.001 : schema.step;
-    if (document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
+    if (force || document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
     unit.textContent = unitSuffix(schema, this.store.unit);
   }
 
