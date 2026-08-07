@@ -389,18 +389,28 @@ export function boreTesterSizes(p) {
   return out;
 }
 
-// Label precision follows the step, so two adjacent holes can never print the same number.
-const BT_LABEL_DP = Math.max(2, Math.ceil(-Math.log10(BT_STEP)));
+export const MM_PER_IN = 25.4;
 
-/** Label text for a diameter — 6.7 reads as "6.70" so it lines up next to "6.75". */
-export function btLabel(d) {
-  return d.toFixed(BT_LABEL_DP);
+// Label precision, per unit, chosen so two adjacent holes can never print the same number.
+// In mm the step sets it. In inches a 0.1 mm step is only 0.0039", so 2 dp would collapse
+// nine sizes onto four labels — 3 dp keeps them distinct AND survives the round trip back
+// into Hole diameter, whose 0.05 mm snap absorbs the 0.0005" (0.0127 mm) rounding error.
+const BT_LABEL_DP = Math.max(2, Math.ceil(-Math.log10(BT_STEP)));
+const BT_LABEL_DP_IN = 3;
+
+/**
+ * Label text for a diameter, in the unit currently on screen — the number you read off the
+ * printed plate has to be the number you can type straight into Hole diameter.
+ */
+export function btLabel(d, unit = "mm") {
+  return unit === "in" ? (d / MM_PER_IN).toFixed(BT_LABEL_DP_IN) : d.toFixed(BT_LABEL_DP);
 }
 
-/** Export filename for a tester plate: the range and step, so a folder of coupons reads. */
-export function boreTesterFileName(p) {
+/** Export filename for a tester plate: the range, in whatever unit the plate is marked in. */
+export function boreTesterFileName(p, unit = "mm") {
   const s = boreTesterSizes(p);
-  return `bore-test_${btLabel(s[0])}-${btLabel(s[s.length - 1])}_step${BT_STEP.toFixed(2)}`;
+  const range = `${btLabel(s[0], unit)}-${btLabel(s[s.length - 1], unit)}`;
+  return unit === "in" ? `bore-test_${range}in` : `bore-test_${range}mm_step${BT_STEP.toFixed(2)}`;
 }
 
 // 7-segment glyph metrics, all proportional to the label height. 7-segment digits need no
@@ -423,14 +433,16 @@ export function btTextWidth(str, h) {
  * Everything is in "plate space": u = across (+ right), v = up the page (+ toward the back
  * of the print), origin at the plate centre.
  */
-export function boreTesterShape(p) {
+export function boreTesterShape(p, unit = "mm") {
   const sizes = boreTesterSizes(p);
   const n = sizes.length;
 
   const maxDia = Math.max(...sizes);
   const gap = BT_HOLE_GAP;
   const labelH = BT_LABEL_SIZE;
-  const labelW = Math.max(...sizes.map((d) => btTextWidth(btLabel(d), labelH)));
+  // Inch labels are a character longer ("0.248" vs "6.30"), so the cells — and the plate —
+  // size themselves around whichever text is actually going to be embossed.
+  const labelW = Math.max(...sizes.map((d) => btTextWidth(btLabel(d, unit), labelH)));
 
   // A cell is as wide as its widest content plus one full gap, so neighbouring holes
   // always keep at least `gap` of material between them (half that at the plate edge).
@@ -450,7 +462,7 @@ export function boreTesterShape(p) {
     const vTop = plateD / 2 - r * cellH;
     return {
       dia: d,
-      label: btLabel(d),
+      label: btLabel(d, unit),
       holeU: u,
       holeV: vTop - gap / 2 - maxDia / 2,
       labelU: u,                          // label is centred on the hole

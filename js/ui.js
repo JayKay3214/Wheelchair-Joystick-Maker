@@ -1,6 +1,4 @@
-import { MODELS, fullSchema, BT_PLATE_THK } from "./models.js";
-
-const MM_PER_IN = 25.4;
+import { MODELS, fullSchema, BT_PLATE_THK, MM_PER_IN } from "./models.js";
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
@@ -45,8 +43,12 @@ function snapClamp(schema, value, max) {
 // Swapped in under the Mounting Hole panel while the tester is on screen. The handle-mode
 // hint it replaces lives in index.html and is read back out of the DOM on startup, so the
 // markup stays the single home for that copy.
-const TESTER_HINT =
-  "Nine holes, 0.1&nbsp;mm apart, centred on your target. Print the plate and push each hole onto your controller stem — whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
+// In inches the spacing is quoted both ways: 0.004&Prime; is what the labels step by, but the
+// plate is built on a 0.1 mm grid and that is the honest number.
+const testerHint = (unit) =>
+  (unit === "in" ? "Nine holes, 0.004&Prime; (0.1&nbsp;mm) apart, " : "Nine holes, 0.1&nbsp;mm apart, ") +
+  "centred on your target. Print the plate and push each hole onto your controller stem — " +
+  "whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
 
 export class UI {
   constructor(store) {
@@ -77,6 +79,7 @@ export class UI {
         this._syncSliderValues();
       } else if (reason === "unit") {
         this._syncSliderValues();
+        this._applyMode(); // the tester's hint quotes the step in the active unit
         if (this._lastDims) this.setSizeReadout(this._lastDims);
       }
     });
@@ -253,7 +256,7 @@ export class UI {
 
     const title = document.getElementById("mount-title");
     if (title) title.textContent = testing ? "Bore Fit Tester" : "Mounting Hole";
-    if (this.mountHint) this.mountHint.innerHTML = testing ? TESTER_HINT : this.handleHint;
+    if (this.mountHint) this.mountHint.innerHTML = testing ? testerHint(this.store.unit) : this.handleHint;
     if (this.testerBtn) {
       this.testerBtn.textContent = testing ? "← Back to handle" : "Print a fit tester";
       this.testerBtn.classList.toggle("is-active", testing);

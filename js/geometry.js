@@ -559,7 +559,9 @@ function buildBoreTester(params, opts = {}) {
   // Facet the test holes exactly like a real handle bore, so what you measure on the
   // coupon is what you get in the finished handle.
   const segments = opts.segments || RADIAL_SEGMENTS;
-  const S = boreTesterShape(params);
+  // Marked in whatever unit is on screen, so the number you read off the print is the one
+  // you can type back into Hole diameter without converting it in your head.
+  const S = boreTesterShape(params, opts.unit);
   const parts = [buildPlateSolid(S, segments)];
 
   const g = btGlyph(S.labelH);
@@ -643,8 +645,8 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
 }
 
 /** Build a ready-to-display mesh for the current model/params/profile. */
-export function buildKnobMesh(model, params, profilePoints) {
-  return new THREE.Mesh(buildKnobGeometry(model, params, profilePoints), material);
+export function buildKnobMesh(model, params, profilePoints, opts = {}) {
+  return new THREE.Mesh(buildKnobGeometry(model, params, profilePoints, opts), material);
 }
 
 /** Bounding-box dimensions in mm: { width, depth, height }. */

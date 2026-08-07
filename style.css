@@ -161,7 +161,10 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 .control-num {
-  width: 4.5ch;
+  /* Wide enough for the longest readout the app produces — inches at 3 dp ("0.248").
+     At 4.5ch the trailing decimal was clipped, which is the one digit that distinguishes
+     one test-plate hole from the next. */
+  width: 5.5ch;
   padding: 1px 4px;
   text-align: right;
   font-family: inherit;

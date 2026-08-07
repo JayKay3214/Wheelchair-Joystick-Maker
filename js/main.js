@@ -19,7 +19,7 @@ let raf = 0;
 function regenerate(frame = false) {
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(() => {
-    const mesh = buildKnobMesh(store.model, store.params, store.profilePoints);
+    const mesh = buildKnobMesh(store.model, store.params, store.profilePoints, { unit: store.unit });
     scene.setMesh(mesh);
     if (frame) scene.frameMesh(mesh); // refit the camera when the model changes
     ui.setSizeReadout(meshDimensions(mesh.geometry));
@@ -28,6 +28,9 @@ function regenerate(frame = false) {
 
 store.subscribe((reason) => {
   if (reason === "model" || reason === "param" || reason === "profile") regenerate(reason === "model");
+  // The tester's labels are embossed geometry, so switching mm/in genuinely reshapes the
+  // plate. Every other model is unit-agnostic and needs no rebuild.
+  else if (reason === "unit" && store.isTesting) regenerate();
 });
 regenerate(true); // initial (fit camera to the first model)
 
@@ -56,7 +59,7 @@ viewBtn.addEventListener("click", () => {
 
 // ---- export -------------------------------------------------------------------
 function fileName() {
-  return store.isTesting ? boreTesterFileName(store.params) : `joystick-${store.modelId}`;
+  return store.isTesting ? boreTesterFileName(store.params, store.unit) : `joystick-${store.modelId}`;
 }
 document.getElementById("export-stl").addEventListener("click", () => {
   if (scene.mesh) exportSTL(scene.mesh.geometry, fileName());
@@ -72,7 +75,7 @@ document.getElementById("export-step").addEventListener("click", (e) => {
   // Coarser facets keep the STEP file manageable; defer so the label repaints.
   requestAnimationFrame(() => {
     try {
-      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS });
+      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS, unit: store.unit });
       exportSTEP(geo, fileName());
       geo.dispose();
     } finally {
