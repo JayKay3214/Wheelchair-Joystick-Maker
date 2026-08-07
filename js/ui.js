@@ -211,7 +211,11 @@ export class UI {
     // number (the bore's comes out of the shape), and an off-grid max leaves the readout
     // showing digits the handle can never land on.
     const snap = (v) => Math.max(schema.min, parseFloat((Math.floor(v / schema.step) * schema.step).toFixed(6)));
-    if (schema.maxFn) return snap(schema.maxFn(this.store.params, this.store.model));
+    // A maxFn NARROWS the declared range, never widens it — the shape can rule a value out,
+    // but it cannot grant one the slider was never meant to offer.
+    if (schema.maxFn) return Math.min(schema.max, snap(schema.maxFn(this.store.params, this.store.model)));
+    // Edge rounding is the deliberate exception: COMMON_SHAPE documents its `max` as a
+    // fallback that a shape-scaled edgeRoundMax is meant to override.
     if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
       return Math.max(0.25, snap(this.store.model.edgeRoundMax(this.store.params)));
     }

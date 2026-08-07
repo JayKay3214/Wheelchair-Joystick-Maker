@@ -39,6 +39,12 @@ const BORE_PARAMS = [
   // NOT as far as the current stem allows. Asking for a deep hole is how you tell the app
   // to grow the stem, so the slider has to let you ask; the store then raises the stem to
   // match. Capping at the current stem would make that unreachable.
+  //
+  // 45 mm stays the hard ceiling on top of that. Powerchair handles are built to grip a
+  // stem of 1" (25.4 mm) or more — Bodypoint's fit both the 4.8 mm (Invacare) and 6.4 mm
+  // (Permobil / Pride / Quantum / Quickie) stems — so 45 is comfortably past any real one,
+  // and roughly triple our own 15-22 mm defaults. A bore deeper than the stem is just
+  // material removed around thin air.
   // Floor is 0, not 4, so the slider can say "no hole" — on a shape with no room for a bore
   // it now reads 0 and the part really has none, instead of reading 4 over a part that
   // hasn't got one.

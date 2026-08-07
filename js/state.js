@@ -111,7 +111,8 @@ export class Store {
         // Never below the slider's own floor, and land on its step grid — a ceiling can be
         // any real number (the bore's is derived from the shape), and dropping it in raw
         // would leave the readout showing digits the handle can't sit on.
-        const mx = Math.max(s.min, s.maxFn(this.params, m));
+        // A maxFn narrows the declared range, never widens it (see UI._dynamicMax).
+        const mx = Math.max(s.min, Math.min(s.max, s.maxFn(this.params, m)));
         if (this.params[s.key] > mx) {
           this.params[s.key] = this._snapDown(mx, s);
         }
