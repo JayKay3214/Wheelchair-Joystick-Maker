@@ -5,6 +5,9 @@ import { testerPlate } from "./boreTester.js";
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
 const SMOOTH_SAMPLES = 80;
+// Straight run of stem left standing above the print bed, which edge rounding never eats
+// into. ~10 layers at a typical 0.2 mm height, so the foot starts as a clean vertical wall.
+const BED_STRAIGHT = 2;
 
 // Shared material so a view-mode change (Solid / Inside) applies to every rebuild.
 export const material = new THREE.MeshStandardMaterial({
@@ -49,8 +52,13 @@ function bezier(ctrl, N) {
  * Unlike a naive per-corner chamfer, the fillet size is measured along the curve's
  * arc length, so a dense polyline (the Chin Cup bowl) no longer chokes the radius.
  * Runs of nearby corners (e.g. the I-Handle's stem/head shoulder) are clustered and
- * blended into a single smooth transition. Endpoints (top-on-axis and the point on
- * the bed) are preserved, and the bore is added later, so it is never affected.
+ * blended into a single smooth transition. The bore is added later, so it is never
+ * affected.
+ *
+ * Both endpoints survive as points, but they are not treated alike. A fillet may sweep
+ * all the way to the top-on-axis point — that is how a large radius domes the crown. It
+ * may NOT sweep to the point on the bed: BED_STRAIGHT mm of stem are held straight there,
+ * because rounding the foot costs bed adhesion and softens an edge no hand ever reaches.
  */
 function roundCorners(points, r) {
   if (r <= 0.01 || points.length < 3) return points;
@@ -93,11 +101,18 @@ function roundCorners(points, r) {
   for (let ci = 0; ci < clusters.length; ci++) {
     const [i0, i1] = clusters[ci];
     const prevLimit = ci > 0 ? s[clusters[ci - 1][1]] : 0;
-    const nextLimit = ci < clusters.length - 1 ? s[clusters[ci + 1][0]] : s[n - 1];
-    // Half the gap to a neighbouring corner (so fillets never overlap); the full gap
-    // toward an endpoint (lets a big radius dome the top / blend the shoulder to base).
+    const isLast = ci === clusters.length - 1;
+    const nextLimit = isLast ? s[n - 1] : s[clusters[ci + 1][0]];
+    // Backward: half the gap to a neighbouring corner (so fillets never overlap), or the
+    // full gap toward the top endpoint — that is what lets a big radius dome the crown.
     const dBack = Math.min(r, (s[i0] - prevLimit) * (ci > 0 ? 0.5 : 1));
-    const dFwd = Math.min(r, (nextLimit - s[i1]) * (ci < clusters.length - 1 ? 0.5 : 1));
+    // Forward: the last cluster runs toward the point on the BED, and the fillet must stop
+    // short of it. Sweeping into the foot pulls the stem's side inward, shrinking the
+    // contact patch the first layers stick to — and it is the one edge on the part nobody
+    // ever touches, so there is nothing to soften. Everything above the foot still rounds.
+    const dFwd = isLast
+      ? Math.min(r, Math.max(0, nextLimit - s[i1] - BED_STRAIGHT))
+      : Math.min(r, (nextLimit - s[i1]) * 0.5);
     const sT1 = s[i0] - dBack, sT2 = s[i1] + dFwd;
     while (cursor < n && s[cursor] < sT1 - 1e-9) { out.push(points[cursor]); cursor++; }
     const ctrl = [at(sT1)];
