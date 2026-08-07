@@ -1,9 +1,13 @@
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling, boreRadius } from "./models.js";
+import { testerPlate } from "./boreTester.js";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
 const SMOOTH_SAMPLES = 80;
+// Straight run of stem held above the print bed, which edge rounding never eats into.
+// ~10 layers at a typical 0.2 mm height, so the foot starts as a clean vertical wall.
+const BED_STRAIGHT = 2;
 
 // Shared material so a view-mode change (Solid / Inside) applies to every rebuild.
 export const material = new THREE.MeshStandardMaterial({
@@ -48,10 +52,17 @@ function bezier(ctrl, N) {
  * Unlike a naive per-corner chamfer, the fillet size is measured along the curve's
  * arc length, so a dense polyline (the Chin Cup bowl) no longer chokes the radius.
  * Runs of nearby corners (e.g. the I-Handle's stem/head shoulder) are clustered and
- * blended into a single smooth transition. Endpoints (top-on-axis and the point on
- * the bed) are preserved, and the bore is added later, so it is never affected.
+ * blended into a single smooth transition. The bore is added later, so it is never
+ * affected.
+ *
+ * Both endpoints survive as points, but they need not be treated alike. A fillet may
+ * sweep all the way to the FIRST point — that is how a large radius domes the crown.
+ * `holdStraight` reserves that much arc length before the LAST point, so a caller whose
+ * polyline ends on the print bed can keep the foot square: rounding it costs bed adhesion
+ * and softens an edge no hand ever reaches. The reserve never consumes the whole run, so
+ * the corner above it is always still filleted.
  */
-function roundCorners(points, r) {
+function roundCorners(points, r, holdStraight = 0) {
   if (r <= 0.01 || points.length < 3) return points;
   const n = points.length;
   const s = [0];
@@ -92,11 +103,19 @@ function roundCorners(points, r) {
   for (let ci = 0; ci < clusters.length; ci++) {
     const [i0, i1] = clusters[ci];
     const prevLimit = ci > 0 ? s[clusters[ci - 1][1]] : 0;
-    const nextLimit = ci < clusters.length - 1 ? s[clusters[ci + 1][0]] : s[n - 1];
-    // Half the gap to a neighbouring corner (so fillets never overlap); the full gap
-    // toward an endpoint (lets a big radius dome the top / blend the shoulder to base).
+    const isLast = ci === clusters.length - 1;
+    const nextLimit = isLast ? s[n - 1] : s[clusters[ci + 1][0]];
+    // Backward: half the gap to a neighbouring corner (so fillets never overlap), or the
+    // full gap toward the top endpoint — that is what lets a big radius dome the crown.
     const dBack = Math.min(r, (s[i0] - prevLimit) * (ci > 0 ? 0.5 : 1));
-    const dFwd = Math.min(r, (nextLimit - s[i1]) * (ci < clusters.length - 1 ? 0.5 : 1));
+    // Forward: half the gap to the next corner, except for the last cluster, which runs
+    // toward the far endpoint and must leave `holdStraight` of it alone. The reserve is
+    // itself capped at half the run: claiming all of it would leave dFwd at 0, and a
+    // single-corner cluster with no forward reach degenerates into a straight line —
+    // silently dropping the fillet the user asked for instead of merely shortening it.
+    const toEnd = nextLimit - s[i1];
+    const reserve = isLast ? Math.min(holdStraight, toEnd * 0.5) : toEnd * 0.5;
+    const dFwd = Math.min(r, Math.max(0, toEnd - reserve));
     const sT1 = s[i0] - dBack, sT2 = s[i1] + dFwd;
     while (cursor < n && s[cursor] < sT1 - 1e-9) { out.push(points[cursor]); cursor++; }
     const ctrl = [at(sT1)];
@@ -134,6 +153,31 @@ function ensureOutwardWinding(geometry) {
     geometry.index.needsUpdate = true;
     geometry.computeVertexNormals();
   }
+}
+
+/**
+ * Push one triangle onto a flat position array, wound so its normal points toward `out`.
+ * Shared by every hand-built (non-lathe) solid here — the goal-post tabs, the oval saddle
+ * and the bore-tester plate all assemble themselves as triangle soup and need the same
+ * "which way round does this face go" decision.
+ *
+ * `a`, `b`, `c` and `out` are plain [x, y, z] arrays; `out` need not be normalised.
+ */
+function pushTri(T, a, b, c, out) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const n0 = uy * vz - uz * vy, n1 = uz * vx - ux * vz, n2 = ux * vy - uy * vx;
+  if (n0 * out[0] + n1 * out[1] + n2 * out[2] >= 0) {
+    T.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+  } else {
+    T.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
+  }
+}
+
+/** Push a quad as two triangles, both wound toward `out`. */
+function pushQuad(T, a, b, c, d, out) {
+  pushTri(T, a, b, c, out);
+  pushTri(T, a, c, d, out);
 }
 
 /** Concatenate geometries into one non-indexed BufferGeometry, preserving each part's
@@ -230,7 +274,7 @@ function buildGoalPost(params, opts = {}) {
   return geometry;
 }
 
-/** Goal Post Experimental: an oval "Pringles" saddle slab (curved top AND bottom over an
+/** Goal Post 2: an oval "Pringles" saddle slab (curved top AND bottom over an
  * elliptical footprint) fused with a bored central stem. Winding is correct by construction:
  * top grid wound +Y, bottom -Y, rim strips oriented per-quad away from the vertical axis. */
 // The whole head as ONE watertight solid: a smooth elliptical saddle slab, PLUS an explicitly
@@ -242,18 +286,8 @@ function buildOvalBase(P) {
   const hasWall = P.wallHeight > 0.1 && P.wallLen > 1;
   const half = P.wallLen / 2;
   const T = []; // non-indexed triangle soup (watertightness verified by quantised coords)
-  const cross = (a, b, c) => {
-    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
-    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-    return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
-  };
-  // push one triangle, winding it so its normal points toward `out`
-  const tri = (a, b, c, out) => {
-    const n = cross(a, b, c);
-    if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] >= 0) T.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-    else T.push(a[0], a[1], a[2], c[0], c[1], c[2], b[0], b[1], b[2]);
-  };
-  const quad = (a, b, c, d, out) => { tri(a, b, c, out); tri(a, c, d, out); };
+  const tri = (a, b, c, out) => pushTri(T, a, b, c, out);
+  const quad = (a, b, c, d, out) => pushQuad(T, a, b, c, d, out);
   const UP = [0, 1, 0], DN = [0, -1, 0];
   const eT = (x, z) => [x, gpOvalMid(P, x, z) + P.halfThick, z]; // oval top surface point
   const eB = (x, z) => [x, gpOvalMid(P, x, z) - P.halfThick, z]; // oval bottom surface point
@@ -370,7 +404,8 @@ function buildStem(P, segments) {
     new THREE.Vector2(P.stemR, P.stemTopY),
     new THREE.Vector2(P.stemR, 0),
   ];
-  if (P.boreR > 0.4) {
+  // Either null means there is no bore to cut, and the stem comes out solid.
+  if (P.boreR != null && P.boreCeil != null) {
     sec.push(new THREE.Vector2(P.boreR, 0));
     sec.push(new THREE.Vector2(P.boreR, P.boreCeil));
     sec.push(new THREE.Vector2(0, P.boreCeil));
@@ -422,6 +457,121 @@ function buildTBar(params, opts = {}) {
   return geometry;
 }
 
+// ---- bore fit tester -----------------------------------------------------------
+// A flat plate with one true through-hole per candidate diameter and the size raised
+// beside it in 7-segment digits. Built in "plate space" (x = across, y = up the page,
+// z = thickness) and rotated flat at the end, so the labels read the right way up when
+// you look down at the plate — in the viewport and in the slicer.
+//
+// The plate is hand-built triangle soup — caps from ShapeUtils.triangulateShape, one wall
+// quad per contour edge (see buildPlateSolid for why ExtrudeGeometry can't do it). Each
+// label segment is its own little box that sinks slightly INTO the plate top, the same
+// fuse-two-solids trick the stems use.
+
+/** An axis-aligned box spanning [u0,u1] x [v0,v1] in plate space, z0 -> z0+depth. */
+function plateBox(u0, v0, u1, v1, z0, depth) {
+  return new THREE.BoxGeometry(u1 - u0, v1 - v0, depth)
+    .translate((u0 + u1) / 2, (v0 + v1) / 2, z0 + depth / 2);
+}
+
+/** Rounded-rectangle outline as explicit points (kept coarse — only the holes need resolution). */
+function roundedRectPoints(hw, hd, r, seg = 6) {
+  r = Math.max(0, Math.min(r, hw - 0.1, hd - 0.1));
+  if (r <= 0.01) {
+    return [new THREE.Vector2(hw, -hd), new THREE.Vector2(hw, hd), new THREE.Vector2(-hw, hd), new THREE.Vector2(-hw, -hd)];
+  }
+  const pts = [];
+  const corner = (cx, cy, a0) => {
+    for (let i = 0; i <= seg; i++) {
+      const a = a0 + (Math.PI / 2) * (i / seg);
+      pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
+    }
+  };
+  corner(hw - r, -hd + r, -Math.PI / 2);
+  corner(hw - r, hd - r, 0);
+  corner(-hw + r, hd - r, Math.PI / 2);
+  corner(-hw + r, -hd + r, Math.PI);
+  return pts;
+}
+
+function circlePoints(cx, cy, r, seg, startAngle = 0) {
+  const pts = [];
+  for (let i = 0; i < seg; i++) {
+    const a = (2 * Math.PI * i) / seg + startAngle;
+    pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
+  }
+  return pts;
+}
+
+/**
+ * The plate itself: a slab with a true through-hole per size. Built by hand rather than
+ * with ExtrudeGeometry — as of three r175 the extruder emits NO lid faces when
+ * bevelSegments is 0, which would leave the plate as an open tube of walls. Caps come
+ * from the same ShapeUtils triangulator the goal-post tabs use; walls are one quad per
+ * contour edge. Every cap vertex is literally a wall vertex, so the result welds into a
+ * watertight manifold solid.
+ */
+function buildPlateSolid(S, segments) {
+  const outer = roundedRectPoints(S.plateW / 2, S.plateD / 2, S.cornerR); // CCW
+  // Holes run CW so the "right of travel" normal below points INTO the hole. Each hole
+  // also starts at a slightly different angle: identical start angles leave hole vertices
+  // exactly collinear with the triangulator's hole bridges, which yields zero-area cap
+  // triangles that the STEP exporter must drop (turning a solid into a surface model).
+  // Rotating a hole doesn't change it — same inscribed polygon, same diameter.
+  const holes = S.cells.map((c, i) =>
+    circlePoints(c.holeU, c.holeV, c.dia / 2, segments, ((i * 0.37) * 2 * Math.PI) / segments).reverse()
+  );
+  const faces = THREE.ShapeUtils.triangulateShape(outer, holes);
+  const all = [...outer, ...holes.flat()]; // index space the faces refer to
+
+  const T = [];
+  const tri = (a, b, c, out) => pushTri(T, a, b, c, out);
+
+  const top = S.thickness, bot = 0;
+  const UP = [0, 0, 1], DN = [0, 0, -1];
+  for (const [i, j, k] of faces) {
+    tri([all[i].x, all[i].y, top], [all[j].x, all[j].y, top], [all[k].x, all[k].y, top], UP);
+    tri([all[i].x, all[i].y, bot], [all[j].x, all[j].y, bot], [all[k].x, all[k].y, bot], DN);
+  }
+  for (const ring of [outer, ...holes]) {
+    for (let i = 0; i < ring.length; i++) {
+      const p0 = ring[i], p1 = ring[(i + 1) % ring.length];
+      const out = [p1.y - p0.y, -(p1.x - p0.x), 0]; // right of travel = away from the material
+      tri([p0.x, p0.y, bot], [p1.x, p1.y, bot], [p1.x, p1.y, top], out);
+      tri([p0.x, p0.y, bot], [p1.x, p1.y, top], [p0.x, p0.y, top], out);
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(T, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+function buildBoreTester(params, opts = {}) {
+  // Facet the test holes exactly like a real handle bore, so what you measure on the
+  // coupon is what you get in the finished handle.
+  const segments = opts.segments || RADIAL_SEGMENTS;
+  // Marked in whatever unit is on screen, so the number you read off the print is the one
+  // you can type back into Hole diameter without converting it in your head.
+  const S = testerPlate(params.boreDia, opts.unit);
+  const parts = [buildPlateSolid(S, segments)];
+
+  // Each digit stroke is its own little box, sunk slightly INTO the plate top so the two
+  // fuse. boreTester.js decides what the digits look like; here they just get extruded.
+  const z0 = S.thickness - S.labelSink;
+  const depth = S.labelRaise + S.labelSink;
+  for (const cell of S.cells) {
+    for (const { u0, v0, u1, v1 } of cell.rects) parts.push(plateBox(u0, v0, u1, v1, z0, depth));
+  }
+
+  const geometry = mergeGeoms(parts);
+  geometry.rotateX(-Math.PI / 2); // plate space -> Y-up, lying flat on the bed
+  geometry.computeBoundingBox();
+  for (const p of parts) p.dispose();
+  return geometry;
+}
+
 /**
  * Assemble the full closed cross-section (radius vs height) and revolve it.
  * The first point (top, x=0) and the last (bore ceiling, x=0) lie on the axis,
@@ -432,19 +582,21 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
   if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
   if (model.geometryKind === "goalpostoval") return buildGoalPostOval(params, opts);
   if (model.geometryKind === "tbar") return buildTBar(params, opts);
+  if (model.geometryKind === "boretester") return buildBoreTester(params, opts);
   const segments = opts.segments || RADIAL_SEGMENTS;
-  const rounded = roundCorners(profilePoints, params.edgeRound || 0);
+  // The profile ends on the bed, so hold the foot straight (see roundCorners).
+  const rounded = roundCorners(profilePoints, params.edgeRound || 0, BED_STRAIGHT);
   const outerRaw = model.smoothProfile ? smoothOuter(rounded) : rounded;
   const outer = dedupe(outerRaw);
 
   const topY = outer[0].y;
   const stemR = Math.max(outer[outer.length - 1].x, 0.5);
 
-  const boreR = Math.min(Math.max(params.boreDia / 2, 0.4), stemR - 1.2);
-  const boreCeil = Math.min(Math.max(params.boreDepth, 2), topY - 3);
+  const boreR = boreRadius(params.boreDia, stemR);
+  const boreCeil = boreCeiling(params.boreDepth, topY); // null = head too short for a bore
 
   const section = outer.map((p) => new THREE.Vector2(Math.max(0, p.x), p.y));
-  if (boreR > 0.4) {
+  if (boreR != null && boreCeil != null) {
     section.push(new THREE.Vector2(boreR, 0));
     section.push(new THREE.Vector2(boreR, boreCeil));
     section.push(new THREE.Vector2(0, boreCeil));
@@ -477,8 +629,8 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
 }
 
 /** Build a ready-to-display mesh for the current model/params/profile. */
-export function buildKnobMesh(model, params, profilePoints) {
-  return new THREE.Mesh(buildKnobGeometry(model, params, profilePoints), material);
+export function buildKnobMesh(model, params, profilePoints, opts = {}) {
+  return new THREE.Mesh(buildKnobGeometry(model, params, profilePoints, opts), material);
 }
 
 /** Bounding-box dimensions in mm: { width, depth, height }. */

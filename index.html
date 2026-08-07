@@ -31,37 +31,39 @@
       <header class="sidebar-header">
         <h1>Joystick Maker</h1>
         <p class="tagline">Custom wheelchair joystick handles, ready to print.</p>
+        <!-- Sidebar-level so it stays put whichever panels are on screen: units are a
+             global preference, and Reset all applies to whatever is active. -->
+        <div class="title-actions">
+          <button type="button" id="reset-values" class="mini-btn" title="Reset all sliders to defaults">Reset all</button>
+          <div class="unit-toggle" role="radiogroup" aria-label="Display units">
+            <button type="button" data-unit="mm" class="unit-btn is-active">mm</button>
+            <button type="button" data-unit="in" class="unit-btn">in</button>
+          </div>
+        </div>
       </header>
 
       <!-- Model picker -->
-      <section class="panel">
+      <section class="panel" id="style-panel">
         <h2 class="panel-title">Handle Style</h2>
         <div id="model-picker" class="model-grid" role="radiogroup" aria-label="Handle style"></div>
       </section>
 
       <!-- Dynamic slider sections injected by ui.js -->
-      <section class="panel">
-        <div class="panel-title-row">
-          <h2 class="panel-title">Shape</h2>
-          <div class="title-actions">
-            <button type="button" id="reset-values" class="mini-btn" title="Reset all sliders to defaults">Reset all</button>
-            <div class="unit-toggle" role="radiogroup" aria-label="Display units">
-              <button type="button" data-unit="mm" class="unit-btn is-active">mm</button>
-              <button type="button" data-unit="in" class="unit-btn">in</button>
-            </div>
-          </div>
-        </div>
+      <section class="panel" id="shape-panel">
+        <h2 class="panel-title">Shape</h2>
         <div id="shape-controls"></div>
         <p class="hint">Tip: double-click a slider to reset just that value.</p>
       </section>
 
-      <section class="panel">
-        <h2 class="panel-title">Mounting Hole</h2>
+      <section class="panel" id="mount-panel">
+        <h2 class="panel-title" id="mount-title">Mounting Hole</h2>
         <div id="mount-controls"></div>
-        <p class="hint">Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4&quot;) stem. Print a test fit before committing.</p>
+        <button type="button" id="bore-tester-toggle" class="btn btn-ghost">Print a fit tester</button>
+        <!-- Filled by ui.js, which swaps between the handle and bore-tester hints. -->
+        <p class="hint" id="mount-hint"></p>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="profile-panel">
         <h2 class="panel-title">Profile</h2>
         <p class="hint">Drag the points to fine-tune the outline. The shape is revolved around the centre axis.</p>
         <div id="profile-editor-wrap">

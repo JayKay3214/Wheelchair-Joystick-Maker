@@ -161,7 +161,10 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 .control-num {
-  width: 4.5ch;
+  /* Wide enough for the longest readout the app produces — inches at 3 dp ("0.248").
+     At 4.5ch the trailing decimal was clipped, which is the one digit that distinguishes
+     one test-plate hole from the next. */
+  width: 5.5ch;
   padding: 1px 4px;
   text-align: right;
   font-family: inherit;
@@ -290,6 +293,13 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-dim);
 }
 .btn-ghost:hover { border-color: #3a4756; color: var(--text); }
+/* Bore-tester toggle, lit up while the tester is on screen. */
+.btn-ghost.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.is-hidden { display: none; }
 
 .export-buttons {
   display: grid;
@@ -302,6 +312,12 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+/* Sidebar-level toolbar: sits under the tagline and stays put whichever panels are on
+   screen, so nothing has to be re-parented when the bore tester takes over. */
+.sidebar-header .title-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 .mini-btn {
   background: var(--bg-input);

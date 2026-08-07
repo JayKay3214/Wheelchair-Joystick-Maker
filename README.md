@@ -40,7 +40,45 @@ Every handle has a configurable round bore at the base:
 
 **Always print a test fit first** and adjust the diameter ±0.1–0.3 mm to suit your printer and the
 desired friction. Units default to millimetres (the 3D-printing standard); a mm/inch toggle changes the
-on-screen readouts only.
+on-screen readouts, and the unit the fit tester's plate is marked in. Exported geometry is always mm,
+whichever unit is on screen.
+
+Setting **Hole depth** to 0 gives a solid handle with no mounting hole. A shape with no room for a
+bore — a Goal Post with the stem wound right down, say — reports 0 as well, rather than claiming a
+depth it hasn't got.
+
+### Bore fit tester
+
+Rather than guessing at that ±0.1–0.3 mm, hit **Print a fit tester** under the Hole diameter slider.
+It swaps the viewport for a flat test plate: one true through-hole per candidate diameter, each with
+its size raised beside it in 7-segment digits.
+
+There is **one control — the target size.** The plate is always nine holes, 0.1 mm apart, centred on
+that target, so it covers the adjustment range above with a step to spare at each end. Set the target
+to 6.70 and you get:
+
+```
+        6.30   6.40   6.50
+        6.60  [6.70]  6.80         53.8 x 63.3 mm, 8 mm thick
+        6.90   7.00   7.10
+```
+
+- The layout is always the **squarest grid** the sizes will make, never a long strip: a row of nine
+  would be 160 mm and overrun a small bed, and long thin plates lift at the corners. The plate tops
+  out at 67 x 91 mm with the target at its 16 mm maximum, so it fits any common bed.
+- The target is seeded from whatever Hole diameter your handle currently has, and **Back to handle**
+  restores that handle untouched — style, sliders and profile drags included.
+- The holes are facetted exactly like a real handle bore, so the fit you measure is the fit you get.
+- The labels follow the mm/inch toggle — in inches the same plate reads `0.248 … 0.280`, at three
+  decimals so no two holes share a number.
+- Exports as `bore-test_6.30-7.10mm_step0.10.stl`, or `bore-test_0.248-0.280in_step0.004.stl` in
+  inches, so a folder of coupons stays readable.
+
+Print it, push each hole onto your controller's stem, and type the number that grips the way you want
+into **Hole diameter**.
+
+To sweep wider or finer, change `SIZE_STEP` / `SIZE_COUNT` in `js/boreTester.js` — the plate re-grids itself
+around whatever count you give it.
 
 ## Run locally
 
@@ -79,6 +117,8 @@ js/
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
   models.js       handle-style registry (shape generators + slider schemas)
+  boreTester.js   the fit tester's sizes, plate layout and 7-segment digits (all 2D)
+  units.js        mm <-> inch conversion
   geometry.js     assembles the closed cross-section + bore -> LatheGeometry
   profileEditor.js draggable 2D profile canvas
   ui.js           sliders, model picker, unit toggle

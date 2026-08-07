@@ -1,3 +1,11 @@
+import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
+
+/** The tester is a mode, not a style; several modules need to recognise it. */
+export const BORE_TESTER_ID = "boretester";
+
+/** The style the app opens on, and falls back to. */
+export const DEFAULT_MODEL_ID = "ball";
+
 /**
  * Model registry. Each model describes a wheelchair joystick handle head.
  *
@@ -18,11 +26,14 @@
 
 // ---- shared slider definitions -------------------------------------------------
 
-// Global edge-rounding (fillets sharp outer edges; never touches the bore).
-// `max` here is only a fallback; roundable models with an `edgeRoundMax(params)`
-// function get a dynamic max scaled to the shape (e.g. the top radius).
+// Global edge-rounding (fillets sharp outer edges; never touches the bore). Appended only
+// to models that declare `edgeRoundMax`, which scales the ceiling to their own shape — 32
+// is above every value they can ask for, so the declared max never binds first. The entry
+// is shared BY REFERENCE across those models, which is why the per-model part dispatches
+// through the model rather than living on the entry.
 const COMMON_SHAPE = [
-  { key: "edgeRound", label: "Edge rounding", min: 0, max: 25, step: 0.25, group: "shape", unit: "mm", def: 1 },
+  { key: "edgeRound", label: "Edge rounding", min: 0, max: 32, step: 0.25, group: "shape", unit: "mm", def: 1,
+    fitFn: (p, m) => Math.max(0.25, m.edgeRoundMax(p)) },
 ];
 
 // Common stem + bore controls appended to every model.
@@ -31,10 +42,95 @@ const STEM_PARAMS = [
   { key: "stemHeight", label: "Stem height", min: 0, max: 35, step: 0.5, group: "shape", unit: "mm", def: 10 },
 ];
 
+const STEM_HEIGHT = STEM_PARAMS.find((s) => s.key === "stemHeight");
+
+const BORE_MIN_DEPTH = 2;   // shallower than this is not a hole worth cutting
+const BORE_MIN_RADIUS = 0.4; // narrower than this is not a hole worth cutting either
+const BORE_WALL = 1.2;      // material left between the bore and the outside of the stem
+
+/**
+ * Radius of the bore inside a stem of radius `stemR` — or NULL when the wall allowance
+ * leaves nothing to cut. Pairs with boreCeiling: both return null for "no bore", so a
+ * caller needs one shape of check rather than two.
+ */
+
 const BORE_PARAMS = [
   { key: "boreDia", label: "Hole diameter", min: 3, max: 16, step: 0.05, group: "mount", unit: "mm", def: 6.7 },
-  { key: "boreDepth", label: "Hole depth", min: 4, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16 },
+  // Three separate jobs, so three separate hooks — one ceiling doing all of them is how the
+  // slider ended up promising depth the model never built. See js/schema.js for the contract.
+  //
+  //   reachFn  how far the SLIDER travels: as deep as the shape could go with the stem wound
+  //            all the way out, because asking for a deep hole is how you tell the app to
+  //            grow the stem. Capping at the CURRENT stem would make that unreachable.
+  //   fitFn    what the shape can hold RIGHT NOW. Shortening the stem trims the depth to it.
+  //   growFn   the other direction: raise the stem to meet the depth you asked for.
+  //
+  // 45 mm is the hard ceiling over all of it. Powerchair handles are built to grip a stem of
+  // 1" (25.4 mm) or more — Bodypoint's fit both the 4.8 mm (Invacare) and 6.4 mm (Permobil /
+  // Pride / Quantum / Quickie) stems — so 45 is comfortably past any real one, and roughly
+  // triple our own 15-22 mm defaults. A bore deeper than the stem removes material around
+  // thin air.
+  //
+  // Floor is 0 so the slider can say "no hole", and `normalise` collapses everything below
+  // the minimum cuttable depth onto it: between the two there is no hole, and a readout of
+  // "1.0 mm" over a solid part is the exact lie this whole mechanism exists to prevent.
+  { key: "boreDepth", label: "Hole depth", min: 0, max: 45, step: 0.5, group: "mount", unit: "mm", def: 16,
+    reachFn: (p, m) => boreDepthCeiling(m, { ...p, stemHeight: STEM_HEIGHT.max }),
+    fitFn: (p, m) => boreDepthCeiling(m, p),
+    growFn: (p, m) => ({ stemHeight: stemHeightForBore(m, p) }),
+    normalise: (v) => (v < BORE_MIN_DEPTH ? 0 : v) },
 ];
+
+const BORE_DIA = BORE_PARAMS.find((s) => s.key === "boreDia");
+
+// The bore has to stop short of the top of the solid it sits in, or it would blow out
+// through the crown. geometry.js enforces this margin; the two helpers below let the UI
+// see the same limit instead of letting a slider promise depth that never gets built.
+const BORE_HEADROOM = 3; // mm of material left above the bore ceiling
+
+/**
+ * Height the bore reaches inside a solid whose top is at `topY` — or NULL when the solid is
+ * too short to hold one at all.
+ *
+ * Returning null rather than a number is the whole point. This used to be a bare
+ * `min(max(depth, 2), topY - 3)`, which on a very short stem goes NEGATIVE, and a negative
+ * ceiling revolves the bore BACKWARDS: instead of a cavity you get a solid peg hanging below
+ * the print bed, on a part the UI still claims has a hole in it. No room now means no bore.
+ */
+export function boreRadius(boreDia, stemR) {
+  const r = Math.min(Math.max(boreDia / 2, BORE_MIN_RADIUS), stemR - BORE_WALL);
+  return r > BORE_MIN_RADIUS ? r : null; // collapsed to nothing: no bore
+}
+
+export function boreCeiling(boreDepth, topY) {
+  if (boreDepth < BORE_MIN_DEPTH) return null; // asked for no hole
+  const ceiling = Math.min(boreDepth, topY - BORE_HEADROOM);
+  return ceiling >= BORE_MIN_DEPTH ? ceiling : null; // no room for one
+}
+
+/**
+ * Top of the solid the bore runs up into, in mm above the bed. For revolution handles that
+ * is the crown of the head; for the swept ones (Goal Posts, T-Bar) the bore lives in the
+ * stem, so it is the stem top. Every model's profile starts at that point, which is the
+ * same value geometry.js measures against.
+ */
+function boreTopY(model, params) {
+  return model.buildOuterProfile(params)[0].y;
+}
+
+/** Deepest hole this model can actually build at its current settings. */
+function boreDepthCeiling(model, params) {
+  return boreTopY(model, params) - BORE_HEADROOM;
+}
+
+/**
+ * Stem height needed to hold a given hole depth. The head sits on top of the stem, so the
+ * room above the stem is fixed and the stem makes up the difference.
+ */
+function stemHeightForBore(model, params) {
+  const headroom = boreTopY(model, params) - params.stemHeight;
+  return params.boreDepth + BORE_HEADROOM - headroom;
+}
 
 // Helper: stem side of the silhouette (head junction -> bed). Always ends at y=0.
 function stemTail(stemR, stemHeight) {
@@ -166,8 +262,8 @@ export function goalPostShape(p) {
   // Inside-corner fillet radius (0 = sharp), clamped so the vertical inner face keeps some
   // height and the fillet stays on the floor side of the wall band.
   P.wallFillet = Math.max(0, Math.min(p.wallCorner, p.wallHeight - 0.5, P.halfW - P.wallThk - 1));
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the 2D editor: the top profile at mid-depth (z=0, i.e.
   // through the walls) then down the sides to the flat bottom.
@@ -177,7 +273,7 @@ export function goalPostShape(p) {
   return P;
 }
 
-// ---- Goal Post Experimental: oval "Pringles" saddle base -----------------------
+// ---- Goal Post 2: oval "Pringles" saddle base ----------------------------------
 // The base is an OVAL (ellipse: wide left-right where the walls go, shorter front-to-back)
 // shaped like a Pringles chip: a constant-thickness slab whose mid-surface curves UP toward
 // the left/right (wall) ends and droops DOWN toward the front/back ends. The centre stays
@@ -233,8 +329,8 @@ export function gpOvalShape(p) {
   // (a normal round), taller-than-wide as the slider increases.
   P.wallCurve = Math.max(0, Math.min(p.wallCorner || 0, P.wallHeight - 0.5));            // vertical reach (ry)
   P.wallCurveX = Math.max(0, Math.min(P.wallCurve, P.tabOut - P.wallThk - 0.3));          // horizontal reach (rx)
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) slab cross-section at z=0 for the 2D editor (shows the up-curve).
   const NS = 50, top = [], bot = [];
@@ -281,8 +377,8 @@ export function tbarShape(p) {
   };
   P.barY = p.stemHeight + ry;           // centreline height (bar bottom ~ on the stem)
   P.stemTopY = P.barY;                  // stem reaches the centreline so the solids fuse
-  P.boreR = Math.min(Math.max(p.boreDia / 2, 0.4), P.stemR - 1.2);
-  P.boreCeil = Math.min(Math.max(p.boreDepth, 2), P.stemTopY - 3);
+  P.boreR = boreRadius(p.boreDia, P.stemR);
+  P.boreCeil = boreCeiling(p.boreDepth, P.stemTopY); // null = no room, so no bore
 
   // Front-view (X-Y) silhouette for the editor: top edge then bottom edge back.
   const NS = 60, top = [], bot = [];
@@ -303,10 +399,13 @@ const ICON = {
   mushroom: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M7 17 C7 8 33 8 33 17 C33 21 26 22 20 22 C14 22 7 21 7 17 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   chincup: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 16 C6 22 34 22 34 16 C34 13 28 11 20 11 C12 11 6 13 6 16 Z" stroke-width="2"/><rect class="stroke fill" x="16" y="21" width="8" height="13" rx="1.5" stroke-width="2"/></svg>`,
   carrot: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M11 9 L29 9 L24 30 L16 30 Z" stroke-width="2"/></svg>`,
-  ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M14 6 L24 8 L21 27 L15 26 Z" stroke-width="2"/><rect class="stroke fill" x="13" y="26" width="7" height="9" rx="1.5" stroke-width="2"/></svg>`,
+  // Upright and symmetric about the centre axis — the handle only leans when the Tilt
+  // slider says so, and its default is 0, so a leaning icon misrepresented the shape.
+  ihandle: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M16 4 L24 4 L25.5 28 L14.5 28 Z" stroke-width="2"/><rect class="stroke fill" x="16.5" y="27" width="7" height="8" rx="1.5" stroke-width="2"/></svg>`,
   goalpost: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 21 L29 21 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
-  goalpostexp: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
+  goalpost2: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M6 13 L11 13 L11 20 C18 23 22 23 29 20 L29 13 L34 13 L34 26 L6 26 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="26" width="6" height="8" rx="1.5" stroke-width="2"/></svg>`,
   tbar: `<svg viewBox="0 0 40 40"><path class="stroke fill" d="M4 14 C14 9 26 9 36 14 C26 18 14 18 4 14 Z" stroke-width="2"/><rect class="stroke fill" x="17" y="16" width="6" height="18" rx="1.5" stroke-width="2"/></svg>`,
+  boretester: `<svg viewBox="0 0 40 40"><rect class="stroke fill" x="4" y="11" width="32" height="18" rx="2.5" stroke-width="2"/><circle class="stroke" cx="12" cy="18" r="3" stroke-width="2"/><circle class="stroke" cx="20" cy="18" r="3.6" stroke-width="2"/><circle class="stroke" cx="28" cy="18" r="4.2" stroke-width="2"/></svg>`,
 };
 
 // ---- models --------------------------------------------------------------------
@@ -376,7 +475,6 @@ const MODELS = [
     // Polyline (densely sampled) so the global "Edge rounding" slider can fillet the
     // sharp rim/lip; with Catmull smoothing the rim would always be auto-rounded.
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => Math.min(p.height, p.rimDia / 2),
     schema: [
       { key: "rimDia", label: "Rim diameter", min: 26, max: 64, step: 0.5, group: "shape", unit: "mm", def: 40 },
@@ -416,7 +514,6 @@ const MODELS = [
     label: "Carrot",
     icon: ICON.carrot,
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => p.topDia / 2,
     schema: [
       { key: "topDia", label: "Top diameter", min: 16, max: 50, step: 0.5, group: "shape", unit: "mm", def: 30 },
@@ -445,7 +542,6 @@ const MODELS = [
     label: "I-Handle",
     icon: ICON.ihandle,
     smoothProfile: false,
-    roundable: true,
     edgeRoundMax: (p) => p.topDia / 2,
     tiltKey: "tilt",
     schema: [
@@ -488,10 +584,11 @@ const MODELS = [
       { key: "baseLength", label: "Base length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 30 },
       { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 5 },
-      // Front-to-back length of the walls, capped to the base length via maxFn.
-      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, maxFn: (p) => p.baseLength },
+      // Front-to-back length of the walls, capped to the base length.
+      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, fitFn: (p) => p.baseLength },
     ],
-    defaults: { stemDia: 14, stemHeight: 20, boreDepth: 22 },
+    // 21 mm is exactly what a 20 mm stem holds; 22 used to be requested and quietly trimmed.
+    defaults: { stemDia: 14, stemHeight: 20, boreDepth: 21 },
     // Placeholder profile so the store stays valid; the custom builder ignores it.
     buildOuterProfile(p) {
       const S = goalPostShape(p);
@@ -500,9 +597,9 @@ const MODELS = [
   },
 
   {
-    id: "goalpostexp",
-    label: "Goal Post Experimental",
-    icon: ICON.goalpostexp,
+    id: "goalpost2",
+    label: "Goal Post 2",
+    icon: ICON.goalpost2,
     // Oval "Pringles" saddle base (walls hidden for now — work in progress).
     smoothProfile: false,
     custom: true,
@@ -514,9 +611,9 @@ const MODELS = [
       { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
       { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
       { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
-      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, maxFn: (p) => p.baseLength },
+      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, fitFn: (p) => p.baseLength },
       { key: "tabStick", label: "Tab stick-out", min: 9, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
-      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, maxFn: (p) => p.wallHeight - 0.5 },
+      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, fitFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {
@@ -545,6 +642,37 @@ const MODELS = [
       return [{ x: 0, y: S.stemTopY }, { x: S.stemR, y: 0, lockY: true }];
     },
   },
+
+  {
+    id: BORE_TESTER_ID,
+    label: "Bore Tester",
+    icon: ICON.boretester,
+    // Not a handle style — reached from the "Print a fit tester" button in the Mounting
+    // Hole panel, so it stays out of the style picker.
+    hidden: true,
+    bare: true,       // its own sliders only: no stem, no single bore, no edge rounding
+    noProfile: true,  // a flat plate has no meaningful revolved cross-section
+    unitMarked: true, // its labels are embossed, so mm/in genuinely reshapes the part
+    flatThickness: PLATE_THICKNESS, // a plate, not a handle: no diameter, fixed thickness
+    smoothProfile: false,
+    custom: true,
+    geometryKind: "boretester",
+    // One decision: the size you're aiming at. Everything else about the plate is fixed.
+    // Derived from the handle bore slider rather than restated, so the two can never drift
+    // apart — the number you read off the plate has to be typeable into "Hole diameter".
+    schema: [
+      { ...BORE_DIA, label: "Target hole diameter" },
+    ],
+    // Entering the tester brings the bore you were designing across as the target.
+    seedFor: (params) => ({ boreDia: params.boreDia }),
+    fileName: (params, unit) => testerFileName(params.boreDia, unit),
+    // Placeholder so the store stays valid. Nothing reads it: the custom builder ignores
+    // profilePoints, the editor is hidden, and boreTopY is only reached via a boreDepth
+    // param this bare schema does not define.
+    buildOuterProfile() {
+      return [{ x: 0, y: 1 }, { x: 0.5, y: 0, lockY: true }];
+    },
+  },
 ];
 
 // Build the full default param object for a model (head + stem + bore defaults).
@@ -557,8 +685,10 @@ export function defaultParams(model) {
 
 // Full ordered schema = model shape params + (edge rounding, if the shape has sharp
 // edges) + stem + bore. Smooth shapes (Ball, Mushroom) hide the edge-rounding slider.
+// `bare` models (the Bore Tester) aren't handles and define their own complete schema.
 export function fullSchema(model) {
-  const rounding = model.roundable ? COMMON_SHAPE : [];
+  if (model.bare) return model.schema;
+  const rounding = model.edgeRoundMax ? COMMON_SHAPE : [];
   return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS];
 }
 

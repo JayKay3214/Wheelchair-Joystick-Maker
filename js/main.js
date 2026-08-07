@@ -18,7 +18,7 @@ let raf = 0;
 function regenerate(frame = false) {
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(() => {
-    const mesh = buildKnobMesh(store.model, store.params, store.profilePoints);
+    const mesh = buildKnobMesh(store.model, store.params, store.profilePoints, { unit: store.unit });
     scene.setMesh(mesh);
     if (frame) scene.frameMesh(mesh); // refit the camera when the model changes
     ui.setSizeReadout(meshDimensions(mesh.geometry));
@@ -27,6 +27,9 @@ function regenerate(frame = false) {
 
 store.subscribe((reason) => {
   if (reason === "model" || reason === "param" || reason === "profile") regenerate(reason === "model");
+  // A unitMarked model carries the unit in its geometry (the tester's labels are embossed),
+  // so switching mm/in genuinely reshapes it. Every other model needs no rebuild.
+  else if (reason === "unit" && store.model.unitMarked) regenerate();
 });
 regenerate(true); // initial (fit camera to the first model)
 
@@ -55,7 +58,8 @@ viewBtn.addEventListener("click", () => {
 
 // ---- export -------------------------------------------------------------------
 function fileName() {
-  return `joystick-${store.modelId}`;
+  // A model that names its own exports says so; everything else is joystick-<id>.
+  return store.model.fileName?.(store.params, store.unit) ?? `joystick-${store.modelId}`;
 }
 document.getElementById("export-stl").addEventListener("click", () => {
   if (scene.mesh) exportSTL(scene.mesh.geometry, fileName());
@@ -71,7 +75,7 @@ document.getElementById("export-step").addEventListener("click", (e) => {
   // Coarser facets keep the STEP file manageable; defer so the label repaints.
   requestAnimationFrame(() => {
     try {
-      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS });
+      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS, unit: store.unit });
       exportSTEP(geo, fileName());
       geo.dispose();
     } finally {

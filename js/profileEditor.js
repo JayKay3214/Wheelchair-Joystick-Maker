@@ -1,3 +1,5 @@
+import { boreCeiling, boreRadius } from "./models.js";
+
 /**
  * 2D profile editor. Draws the joystick's cross-section (radius vs height) mirrored
  * about the centre axis, with draggable control points. Dragging a point updates the
@@ -134,8 +136,8 @@ export class ProfileEditor {
       for (let i = 1; i < arr.length; i++) { const q = toPx(arr[i]); ctx.lineTo(q.px, q.py); }
       ctx.closePath(); ctx.fill(); ctx.stroke();
     }
-    // bore
-    if (S.boreR > 0.4) {
+    // bore (absent when the stem is too short to hold one)
+    if (S.boreR != null && S.boreCeil != null) {
       const bx = S.boreR * scale, by = baseY - S.boreCeil * scale;
       ctx.strokeStyle = "#f59e0b"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.25;
       ctx.beginPath();
@@ -149,6 +151,8 @@ export class ProfileEditor {
   }
 
   draw() {
+    // Models with no revolved cross-section (the flat Bore Tester plate) hide this panel.
+    if (this.store.model.noProfile) { this.ctx.clearRect(0, 0, W, H); return; }
     if (this.store.model.custom && this.store.model.shape2D) { this._drawCustom(); return; }
     const ctx = this.ctx;
     const f = this._fit();
@@ -194,9 +198,9 @@ export class ProfileEditor {
     ctx.stroke();
 
     // bore indicator (mounting hole)
-    const boreR = Math.min(this.store.params.boreDia / 2, pts[pts.length - 1].x - 1.2);
-    const boreDepth = Math.min(this.store.params.boreDepth, pts[0].y - 3);
-    if (boreR > 0.4) {
+    const boreR = boreRadius(this.store.params.boreDia, pts[pts.length - 1].x);
+    const boreDepth = boreCeiling(this.store.params.boreDepth, pts[0].y);
+    if (boreR != null && boreDepth != null) {
       const bx = boreR * f.scale;
       const by = f.baseY - boreDepth * f.scale;
       ctx.strokeStyle = "#f59e0b";

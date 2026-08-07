@@ -1,6 +1,7 @@
 import { MODELS, fullSchema } from "./models.js";
-
-const MM_PER_IN = 25.4;
+import { reachFor, snapDownToStep } from "./schema.js";
+import { MM_PER_IN } from "./units.js";
+import { SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
@@ -42,6 +43,24 @@ function snapClamp(schema, value, max) {
   return parseFloat(clamped.toFixed(6));
 }
 
+// The two hints the Mounting Hole panel swaps between. Both live here rather than one
+// here and one in the markup: read out of the DOM, the handle hint would silently become
+// empty if the element were renamed, and one panel's copy having two homes invites drift.
+// Count and spacing are read from the tester's own constants, so tuning the sweep can't
+// leave the copy lying. In inches the spacing is quoted both ways: the labels step by the
+// converted figure, but the plate is built on a millimetre grid and that is the honest one.
+const testerSpacing = (unit) =>
+  unit === "in"
+    ? `${sizeLabel(SIZE_STEP, "in")}&Prime; (${SIZE_STEP}&nbsp;mm)`
+    : `${SIZE_STEP}&nbsp;mm`;
+const HANDLE_HINT =
+  'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4&quot;) ' +
+  'stem. Print a test fit before committing.';
+const testerHint = (unit) =>
+  `${SIZE_COUNT} holes, ${testerSpacing(unit)} apart, centred on your target. ` +
+  "Print the plate and push each hole onto your controller stem — " +
+  "whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
+
 export class UI {
   constructor(store) {
     this.store = store;
@@ -49,11 +68,14 @@ export class UI {
     this.shapeControls = document.getElementById("shape-controls");
     this.mountControls = document.getElementById("mount-controls");
     this.sizeReadout = document.getElementById("size-readout");
+    this.mountHint = document.getElementById("mount-hint");
     this.sliderEls = new Map(); // key -> { input, value, schema }
 
     this._buildModelPicker();
     this._buildControls();
     this._wireUnitToggle();
+    this._wireBoreTester();
+    this._applyMode();
 
     const resetBtn = document.getElementById("reset-values");
     if (resetBtn) resetBtn.addEventListener("click", () => store.resetParams());
@@ -62,10 +84,12 @@ export class UI {
       if (reason === "model") {
         this._syncModelPicker();
         this._buildControls();
+        this._applyMode();
       } else if (reason === "param") {
         this._syncSliderValues();
       } else if (reason === "unit") {
         this._syncSliderValues();
+        this._applyMode(); // the tester's hint quotes the step in the active unit
         if (this._lastDims) this.setSizeReadout(this._lastDims);
       }
     });
@@ -74,7 +98,7 @@ export class UI {
   _buildModelPicker() {
     this.modelPicker.innerHTML = "";
     for (const m of MODELS) {
-      if (m.hidden) continue; // e.g. Goal Posts — kept in code, hidden from the picker
+      if (m.hidden) continue; // the Bore Tester is a mode, not a style — it has its own way in
       const card = document.createElement("button");
       card.type = "button";
       card.className = "model-card" + (m.id === this.store.modelId ? " is-active" : "");
@@ -153,13 +177,16 @@ export class UI {
     const commitTyped = () => {
       const stored = parseToStored(schema, numEl.value, this.store.unit);
       if (stored === null) {
-        this._syncOne(schema.key); // revert junk input to the current value
+        this._syncOne(schema.key, true); // revert junk input to the current value
         return;
       }
-      const v = snapClamp(schema, stored, this._dynamicMax(schema));
-      input.value = v;
-      this.store.setParam(schema.key, v);
-      numEl.value = displayNumber(schema, v, this.store.unit);
+      this.store.setParam(schema.key, snapClamp(schema, stored, this._dynamicMax(schema)));
+      // Read back what the store SETTLED on rather than echoing what we sent. It may have
+      // moved: a hole depth below the shallowest cuttable one normalises to 0, and a shape
+      // may not have room for what was asked. Echoing the request left the number field
+      // claiming a value the model had already rejected, while the slider beside it —
+      // refreshed from the store — showed the truth. The two disagreed on screen.
+      this._syncOne(schema.key, true);
     };
     numEl.addEventListener("change", commitTyped);
     numEl.addEventListener("keydown", (e) => {
@@ -172,8 +199,12 @@ export class UI {
     return wrap;
   }
 
-  // Refresh one control's slider, typed number, and unit label from the store.
-  _syncOne(key) {
+  /**
+   * Refresh one control's slider, typed number and unit label from the store.
+   * `force` overrides the don't-clobber-what-they're-typing guard — used right after a
+   * commit, where the store may have settled on a different value than was typed.
+   */
+  _syncOne(key, force = false) {
     const entry = this.sliderEls.get(key);
     if (!entry) return;
     const { input, num, unit, schema } = entry;
@@ -186,23 +217,62 @@ export class UI {
     num.min = inUnit ? (schema.min / MM_PER_IN).toFixed(3) : schema.min;
     num.max = inUnit ? (max / MM_PER_IN).toFixed(3) : max;
     num.step = inUnit ? 0.001 : schema.step;
-    if (document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
+    if (force || document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
     unit.textContent = unitSuffix(schema, this.store.unit);
   }
 
   // Some sliders have a dynamic ceiling that depends on other params (e.g. edge rounding
   // scaled to the top radius, or wall length capped to the base length).
   _dynamicMax(schema) {
-    if (schema.maxFn) return Math.max(schema.min, schema.maxFn(this.store.params));
-    if (schema.key === "edgeRound" && this.store.model.edgeRoundMax) {
-      return Math.max(0.25, this.store.model.edgeRoundMax(this.store.params));
-    }
-    return schema.max;
+    // How far this control may travel (see js/schema.js), snapped onto its own step grid:
+    // a computed ceiling is an arbitrary real number, and an off-grid max leaves the
+    // readout showing digits the handle can never land on.
+    return snapDownToStep(schema, reachFor(schema, this.store.params, this.store.model));
   }
 
   // Refresh slider positions + readouts from the store (after model/param/unit change).
   _syncSliderValues() {
     for (const key of this.sliderEls.keys()) this._syncOne(key);
+  }
+
+  _wireBoreTester() {
+    this.testerBtn = document.getElementById("bore-tester-toggle");
+    if (!this.testerBtn) return;
+    this.testerBtn.addEventListener("click", () => {
+      if (this.store.isTesting) this.store.exitBoreTester();
+      else this.store.enterBoreTester();
+    });
+  }
+
+  /**
+   * Show only the panels the active model has something to say about. The two conditions
+   * are the model's OWN declared flags rather than "are we in the tester", so the flags in
+   * models.js are what actually drives the layout:
+   *
+   *   bare      -> defines its whole schema itself, so there is no separate Shape section
+   *   noProfile -> has no revolved cross-section, so the profile editor means nothing
+   *
+   * The style picker is the one genuinely mode-specific case: the tester is not a handle
+   * style, so offering the picker while it is on screen would be a trap.
+   */
+  _applyMode() {
+    const model = this.store.model;
+    const testing = this.store.isTesting;
+    const hide = (id, v) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle("is-hidden", v);
+    };
+    hide("style-panel", testing);
+    hide("shape-panel", !!model.bare);
+    hide("profile-panel", !!model.noProfile);
+
+    const title = document.getElementById("mount-title");
+    if (title) title.textContent = testing ? "Bore Fit Tester" : "Mounting Hole";
+    if (this.mountHint) this.mountHint.innerHTML = testing ? testerHint(this.store.unit) : HANDLE_HINT;
+    if (this.testerBtn) {
+      this.testerBtn.textContent = testing ? "← Back to handle" : "Print a fit tester";
+      this.testerBtn.classList.toggle("is-active", testing);
+    }
   }
 
   _wireUnitToggle() {
@@ -219,6 +289,12 @@ export class UI {
     this._lastDims = dims;
     const u = this.store.unit;
     const fmt = (v) => (u === "in" ? `${(v / MM_PER_IN).toFixed(2)}″` : `${v.toFixed(1)} mm`);
-    this.sizeReadout.textContent = `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
+    // A model that declares a flat thickness is a plate, not a handle: it has no meaningful
+    // diameter, and the number that matters is the plate itself — NOT the bounding box,
+    // which includes the raised labels — because that is how much bore engages the stem.
+    const flat = this.store.model.flatThickness;
+    this.sizeReadout.textContent = flat != null
+      ? `${fmt(dims.width)} × ${fmt(dims.depth)} · ${fmt(flat)} thick`
+      : `Ø ${fmt(Math.max(dims.width, dims.depth))} · H ${fmt(dims.height)}`;
   }
 }
