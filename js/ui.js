@@ -46,7 +46,7 @@ function snapClamp(schema, value, max) {
 const HANDLE_HINT =
   'Most powerchair joysticks (Permobil, Pride, Quantum, Quickie) use a 6.35&nbsp;mm (1/4") stem. Print a test fit before committing.';
 const TESTER_HINT =
-  "Seven holes, 0.1&nbsp;mm apart, centred on your target. Print the plate and push each hole onto your controller stem — whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
+  "Nine holes, 0.1&nbsp;mm apart, centred on your target. Print the plate and push each hole onto your controller stem — whichever one grips the way you want, read its number and type that into Hole diameter on your handle.";
 
 export class UI {
   constructor(store) {

@@ -302,12 +302,14 @@ export function tbarShape(p) {
 // you want, then type that number into the handle's "Hole diameter". The set is always an
 // ODD count centred on the target, so the middle hole is exactly what you asked for.
 
-// The sweep is fixed rather than exposed as sliders: target ±0.3 mm in 0.1 mm steps is
-// exactly the adjustment range this tool tells you to try, and it keeps the tester a
-// one-decision job — set the size you're aiming at, print, read the winner off the plate.
-// Widening the sweep is a matter of changing these two numbers.
+// The sweep is fixed rather than exposed as sliders: target ±0.4 mm in 0.1 mm steps covers
+// the adjustment range this tool tells you to try with a step to spare at each end, and it
+// keeps the tester a one-decision job — set the size you're aiming at, print, read the
+// winner off the plate. Widening the sweep is a matter of changing these two numbers.
+// Nine also happens to tile as a perfect 3x3, which is why it beats seven: same plate size,
+// no half-empty row, two extra sizes free.
 export const BT_STEP = 0.1;   // mm between adjacent sizes
-export const BT_COUNT = 7;    // odd, so the target lands dead centre
+export const BT_COUNT = 9;    // odd, so the target lands dead centre
 
 // Plate proportions. All fixed: they suit any printer, and none of them change what the
 // test actually measures.
@@ -347,17 +349,15 @@ export function btTextWidth(str, h) {
 }
 
 /**
- * Plate layout. Cells are laid out left-to-right, smallest first — a size ladder reads
- * best in one row, so it stays a row while it fits comfortably on a bed and only wraps
- * into a grid if BT_COUNT is raised well past the default. Each cell holds one hole with
- * its label underneath. Everything is in "plate space": u = across (+ right), v = up the
- * page (+ toward the back of the print), origin at the plate centre.
+ * Plate layout. Cells are laid out left-to-right, smallest first, in the grid that comes
+ * out closest to SQUARE — a long thin coupon overruns small beds (a row of nine would be
+ * 160 mm) and lifts at the corners. Each cell holds one hole with its label underneath.
+ * Everything is in "plate space": u = across (+ right), v = up the page (+ toward the back
+ * of the print), origin at the plate centre.
  */
 export function boreTesterShape(p) {
   const sizes = boreTesterSizes(p);
   const n = sizes.length;
-  const cols = n <= 8 ? n : Math.max(4, Math.ceil(n / Math.ceil(n / 4)));
-  const rows = Math.ceil(n / cols);
 
   const maxDia = Math.max(...sizes);
   const gap = BT_HOLE_GAP;
@@ -368,6 +368,19 @@ export function boreTesterShape(p) {
   // always keep at least `gap` of material between them (half that at the plate edge).
   const cellW = Math.max(maxDia, labelW) + gap;
   const cellH = maxDia + labelH + 1.5 * gap;
+
+  // Pick the column count giving the squarest plate. Cells are usually wider than they are
+  // deep (the label sets the width, not the hole), so this isn't simply ceil(sqrt(n)). A
+  // small penalty per empty cell breaks near-ties toward a grid that comes out full — at
+  // the default nine that lands on an exact 3x3.
+  let cols = n, bestScore = Infinity;
+  for (let c = 1; c <= n; c++) {
+    const r = Math.ceil(n / c);
+    const w = c * cellW, d = r * cellH;
+    const score = Math.max(w, d) / Math.min(w, d) + (c * r - n) * 0.15;
+    if (score < bestScore) { bestScore = score; cols = c; }
+  }
+  const rows = Math.ceil(n / cols);
   const plateW = cols * cellW;
   const plateD = rows * cellH;
 
