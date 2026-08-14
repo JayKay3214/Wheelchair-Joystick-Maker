@@ -1,41 +1,46 @@
 # Joystick Maker — Wheelchair Joystick Customizer
 
+Source: **https://github.com/JayKay3214/Wheelchair-Joystick-Maker**
+
 A browser tool for designing custom **wheelchair / powerchair joystick handles** and exporting them
-as **STL** and **OBJ** files for 3D printing. Inspired by
+as **STL**, **OBJ** and **STEP** files for 3D printing and CAD. Inspired by
 [Vasecreator](https://github.com/gewoonkees132/Vasecreator): you shape the handle with simple sliders
 (and an optional draggable profile), see a **live 3D preview**, and download a print-ready model.
 
 The round handle shapes are generated with the **revolution (lathe) technique** — a 2D outline is
-spun around the centre axis — exactly as requested. The mounting hole is built directly into that
-outline, so every export is a **watertight, manifold solid** with no boolean/CSG step.
+spun around the centre axis. The mounting hole is built directly into that outline, so every export
+is a **watertight, manifold solid** with no boolean/CSG step. The non-symmetric styles (Goal Posts,
+T-Bar) are built as single hand-assembled solids instead, held to the same watertight standard.
 
 ## Handle styles
 
-Based on the 8 common powerchair handles, this version ships the five that are revolution-based:
+Eight styles, five of them revolution-based and three swept:
 
 | Style | Notes |
 |-------|-------|
 | **Ball** | Rounded ball/knob with adjustable diameter and squash. |
 | **Mushroom** | Domed cap wider than the stem, with an adjustable undercut. |
 | **Chin Cup** | Flared cup with a concave (inward) bowl top for chin control. |
-| **Remote+ (Carrot)** | Tapered truncated cone. |
+| **Carrot** | Tapered truncated cone. |
 | **I-Handle** | Tapered grip with an optional lean (the stem and bore stay vertical for mounting). |
+| **Goal Post** | Flat palm base with a straight side wall each side; adjustable base size, wall height/length and inside corner curve. |
+| **Goal Post 2** | Oval saddle base — *Palm Rest* droops the front/back, *Side bend* curves the sides down — with a flat shelf (*Side Wall Width*) and a straight vertical wall at each widest point, plus a *Wall inner curve* fillet where the shelf meets the wall. |
+| **T-Bar** | Horizontal bar handle on a central stem, with adjustable thickness, length, end droop and end taper. |
 
 **Edge rounding:** styles with sharp edges (Chin Cup, Carrot, I-Handle) expose an *Edge rounding*
 slider that fillets the outer edges — the bowl lip, the frustum edges, or the I-Handle's top and
-stem/head shoulder. It never affects the mounting bore. Smooth styles (Ball, Mushroom) hide the
-slider since they have no sharp edges.
+stem/head shoulder. It never affects the mounting bore, and it leaves the foot where the part meets
+the bed square. Smooth styles (Ball, Mushroom) hide the slider since they have no sharp edges.
 
-> **Coming later:** **T-Bar** and **Goal Posts** are non-symmetric and need swept geometry, plus extra
-> bore types (D-shape / hex / set-screw). The model registry (`js/models.js`) and bore generator are
-> built so these drop in as new entries without restructuring.
+> **Coming later:** extra bore types (D-shape / hex / set-screw). The model registry (`js/models.js`)
+> and bore generator are built so these drop in as new entries without restructuring.
 
 ## Mounting hole (controller fit)
 
 Every handle has a configurable round bore at the base:
 
-- **Hole diameter** — default **6.35 mm (1/4")**, the common friction-fit stem on Permobil, Pride,
-  Quantum, Quickie and similar gimbals.
+- **Hole diameter** — default **6.7 mm**, sized for the common ~6.35 mm (1/4") friction-fit stem on
+  Permobil, Pride, Quantum, Quickie and similar gimbals, with a little printer allowance.
 - **Hole depth** — how far the controller stem inserts.
 
 **Always print a test fit first** and adjust the diameter ±0.1–0.3 mm to suit your printer and the
@@ -49,7 +54,8 @@ depth it hasn't got.
 
 ### Bore fit tester
 
-Rather than guessing at that ±0.1–0.3 mm, hit **Print a fit tester** under the Hole diameter slider.
+Rather than guessing at that ±0.1–0.3 mm, hit **Print a fit tester** at the bottom of the Mounting
+Hole section.
 It swaps the viewport for a flat test plate: one true through-hole per candidate diameter, each with
 its size raised beside it in 7-segment digits.
 
@@ -117,20 +123,45 @@ js/
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
   models.js       handle-style registry (shape generators + slider schemas)
+  schema.js       slider rules: reach/fit/grow hooks and how a value is normalised
   boreTester.js   the fit tester's sizes, plate layout and 7-segment digits (all 2D)
   units.js        mm <-> inch conversion
-  geometry.js     assembles the closed cross-section + bore -> LatheGeometry
+  geometry.js     closed cross-section + bore -> LatheGeometry, plus the swept solids
+                  (Goal Posts, T-Bar) and the shared bored stem
   profileEditor.js draggable 2D profile canvas
-  ui.js           sliders, model picker, unit toggle
-  exporter.js     STL (binary) + OBJ export, rotated Z-up for printing
+  ui.js           slider sections + numeric entry, model picker, unit toggle
+  exporter.js     STL (binary), OBJ and STEP export, rotated Z-up for printing
 ```
 
 ### Editing the shape
 
-- **Sliders** are the primary control (diameter, height, taper, stem, bore, etc.).
-- The **Profile** panel shows the cross-section; **drag the points** to fine-tune the outline. Drags
-  persist until you move a slider for that style (which regenerates the base shape). **Reset shape**
-  restores the slider-defined outline.
+- **Sliders** are the primary control (diameter, height, taper, stem, bore, etc.). Every slider also
+  has a **number box** — type an exact value and it is clamped to that slider's range. Double-click a
+  slider to reset just that value.
+- Sliders are grouped into sections, and each style only shows the ones it has:
+
+  | Style | Sections |
+  |-------|----------|
+  | Ball, Mushroom, Chin Cup, Carrot, I-Handle | **Shape** → **Stem** → **Mounting Hole** |
+  | Goal Post, Goal Post 2 | **Base** → **Side Walls** → **Stem** → **Mounting Hole** |
+  | T-Bar | **Handle** → **Stem** → **Mounting Hole** |
+
+  The sections are generated from each model's schema (`group` on a slider), so adding a style — or a
+  new group — needs no layout code.
+- The **Profile** panel shows the cross-section. On the revolution styles you can **drag the points**
+  to fine-tune the outline; drags persist until you move a slider for that style (which regenerates
+  the base shape), and **Reset shape** restores the slider-defined outline. The swept styles (Goal
+  Posts, T-Bar) show a read-only cross-section — shape them with the sliders.
+
+## Exports
+
+| Format | Use it for |
+|--------|------------|
+| **STL** (binary) | Printing. The standard slicer format. |
+| **OBJ** | Printing / general 3D interchange. |
+| **STEP** | CAD. Imports as a solid in FreeCAD, Fusion, SolidWorks etc. if you want to modify the part further. |
+
+All three are millimetres at 1:1 and are rotated Z-up (bore facing down) on the way out.
 
 ## Printing tips
 
@@ -138,7 +169,27 @@ js/
 - Print the stem/bore area solid (high infill or extra walls) for a durable press-fit.
 - A small brim helps adhesion for tall styles like the I-Handle and Carrot.
 
-## License / attribution
+## Credits
 
-Built with [Three.js](https://threejs.org/). Design and interaction inspired by the GPL-3.0
-[Vasecreator](https://github.com/gewoonkees132/Vasecreator) project.
+In the app, these are behind the **ⓘ** button beside the title.
+
+- **Jayden Collier** — Lead. Led the concept and direction: what to build, how it should work and
+  how it should be put together.
+- **Jayke Collier** — Developer. Drove the implementation and the AI-assisted coding workflow.
+
+## License
+
+Copyright 2026 Jayden Collier and Jayke Collier. Licensed under the
+**[Apache License 2.0](LICENSE)**.
+
+You are free to use, modify and distribute this software, including commercially. In return you
+must:
+
+- keep the copyright notice, the `LICENSE`, and the `NOTICE` file in any copy you distribute, and
+- **state that you changed the files** if you distribute a modified version.
+
+## Attribution
+
+Built with [Three.js](https://threejs.org/) (MIT). Design and interaction inspired by the GPL-3.0
+[Vasecreator](https://github.com/gewoonkees132/Vasecreator) project — this project is an independent
+implementation and contains no Vasecreator source.
