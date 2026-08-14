@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import { SceneManager } from "./scene.js";
 import { Store } from "./state.js";
 import { UI } from "./ui.js";
@@ -83,6 +86,16 @@ document.getElementById("export-step").addEventListener("click", (e) => {
       btn.disabled = false;
     }
   });
+});
+
+// ---- credits ------------------------------------------------------------------
+const creditsDialog = document.getElementById("credits-dialog");
+document.getElementById("credits-open").addEventListener("click", () => creditsDialog.showModal());
+document.getElementById("credits-close").addEventListener("click", () => creditsDialog.close());
+// Clicking the backdrop targets the dialog itself, so this closes it without catching
+// clicks on the content inside.
+creditsDialog.addEventListener("click", (e) => {
+  if (e.target === creditsDialog) creditsDialog.close();
 });
 
 // keep renderer sized once layout settles
