@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import { boreCeiling, boreRadius } from "./models.js";
 
 /**

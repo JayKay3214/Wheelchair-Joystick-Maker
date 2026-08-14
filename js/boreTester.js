@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Bore fit tester — a flat rectangular test coupon with one true through-hole per candidate
  * diameter, each with its size raised beside it in 7-segment digits. Print it, find the hole

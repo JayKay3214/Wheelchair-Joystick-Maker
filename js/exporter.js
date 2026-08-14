@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import * as THREE from "three";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";

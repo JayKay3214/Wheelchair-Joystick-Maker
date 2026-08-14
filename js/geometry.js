@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import * as THREE from "three";
 import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling, boreRadius } from "./models.js";
 import { testerPlate } from "./boreTester.js";

@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import { getModel, defaultParams, fullSchema, BORE_TESTER_ID, DEFAULT_MODEL_ID } from "./models.js";
 import { ceilingFor, snapDownToStep, snapUpToStep, clampToSchema } from "./schema.js";
 

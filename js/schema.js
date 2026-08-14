@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Slider schemas: the shared vocabulary a model uses to describe a control, and the
  * arithmetic for holding a value inside one.
