@@ -29,7 +29,16 @@
     <!-- Sidebar with controls -->
     <aside id="sidebar" aria-label="Joystick controls">
       <header class="sidebar-header">
-        <h1>Joystick Maker</h1>
+        <div class="title-row">
+          <h1>Joystick Maker</h1>
+          <button type="button" id="credits-open" class="icon-btn" aria-label="About and credits" title="About &amp; credits">
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <circle cx="10" cy="10" r="8.25" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <circle cx="10" cy="6" r="1.05" fill="currentColor"/>
+              <path d="M10 9.1v5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
         <p class="tagline">Custom wheelchair joystick handles, ready to print.</p>
         <!-- Sidebar-level so it stays put whichever panels are on screen: units are a
              global preference, and Reset all applies to whatever is active. -->
@@ -48,12 +57,9 @@
         <div id="model-picker" class="model-grid" role="radiogroup" aria-label="Handle style"></div>
       </section>
 
-      <!-- Dynamic slider sections injected by ui.js -->
-      <section class="panel" id="shape-panel">
-        <h2 class="panel-title">Shape</h2>
-        <div id="shape-controls"></div>
-        <p class="hint">Tip: double-click a slider to reset just that value.</p>
-      </section>
+      <!-- One panel per slider group (Shape / Base / Handle / Side Walls / Stem), built by
+           ui.js from each model's schema so a model only shows the sections it actually has. -->
+      <div id="shape-sections"></div>
 
       <section class="panel" id="mount-panel">
         <h2 class="panel-title" id="mount-title">Mounting Hole</h2>
@@ -83,7 +89,7 @@
       </section>
 
       <footer class="sidebar-footer">
-        <span>Built with Three.js · units in millimetres</span>
+        <p class="colophon">Built with Three.js · units in millimetres</p>
       </footer>
     </aside>
 
@@ -98,6 +104,36 @@
       <div id="loading" class="loading">Loading 3D engine…</div>
     </main>
   </div>
+
+  <!-- Credits. A native <dialog> so Esc and focus trapping come for free. -->
+  <dialog id="credits-dialog" class="credits-dialog" aria-labelledby="credits-title">
+    <h2 id="credits-title">Joystick Maker</h2>
+    <p class="credits-sub">Custom wheelchair joystick handles, ready to print.</p>
+    <ul class="credits-list">
+      <li>
+        <span class="credit-name">Jayden Collier</span>
+        <span class="credit-role">Lead · concept &amp; direction</span>
+      </li>
+      <li>
+        <span class="credit-name">Jayke Collier</span>
+        <span class="credit-role">Developer · AI-assisted build</span>
+      </li>
+    </ul>
+    <p class="credits-source">
+      <a href="https://github.com/JayKay3214/Wheelchair-Joystick-Maker" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+        </svg>
+        View source on GitHub
+      </a>
+    </p>
+    <p class="credits-legal">
+      © 2026 Jayden Collier and Jayke Collier · Licensed under Apache-2.0<br />
+      Built with <a href="https://threejs.org/" target="_blank" rel="noopener noreferrer">Three.js</a> · units in millimetres
+    </p>
+    <!-- autofocus so opening the dialog lands focus on Close, not mid-sentence on the link -->
+    <button type="button" id="credits-close" class="btn btn-secondary" autofocus>Close</button>
+  </dialog>
 
   <script type="module" src="./js/main.js"></script>
 </body>

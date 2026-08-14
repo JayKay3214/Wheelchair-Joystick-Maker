@@ -1,7 +1,21 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import { MODELS, fullSchema } from "./models.js";
 import { reachFor, snapDownToStep } from "./schema.js";
 import { MM_PER_IN } from "./units.js";
 import { SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
+
+// Slider sections, in the order they appear above the Mounting Hole panel. A model only shows
+// the groups its schema actually uses, so no model has to declare every one of these.
+const SLIDER_GROUPS = ["shape", "base", "handle", "walls", "stem"];
+const GROUP_TITLES = {
+  shape: "Shape",
+  base: "Base",
+  handle: "Handle",
+  walls: "Side Walls",
+  stem: "Stem",
+};
 
 /** Is this a length param (stored in mm, convertible to inches)? */
 function isLength(schema) {
@@ -65,7 +79,7 @@ export class UI {
   constructor(store) {
     this.store = store;
     this.modelPicker = document.getElementById("model-picker");
-    this.shapeControls = document.getElementById("shape-controls");
+    this.shapeSections = document.getElementById("shape-sections");
     this.mountControls = document.getElementById("mount-controls");
     this.sizeReadout = document.getElementById("size-readout");
     this.mountHint = document.getElementById("mount-hint");
@@ -121,12 +135,41 @@ export class UI {
 
   _buildControls() {
     this.sliderEls.clear();
-    this.shapeControls.innerHTML = "";
+    this.shapeSections.innerHTML = "";
     this.mountControls.innerHTML = "";
-    const schema = fullSchema(this.store.model);
-    for (const s of schema) {
-      const target = s.group === "mount" ? this.mountControls : this.shapeControls;
-      target.appendChild(this._makeSlider(s));
+
+    // Bucket the schema by group, preserving each group's declared slider order.
+    const byGroup = new Map();
+    for (const s of fullSchema(this.store.model)) {
+      const g = s.group || "shape";
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(s);
+    }
+
+    // The mounting hole keeps its own hand-written panel (it owns the fit-tester button).
+    for (const s of byGroup.get("mount") || []) this.mountControls.appendChild(this._makeSlider(s));
+    byGroup.delete("mount");
+
+    // Shape-ish groups in a fixed order, then anything unrecognised so a new group can never
+    // silently vanish from the UI.
+    const order = [...SLIDER_GROUPS.filter((g) => byGroup.has(g)), ...[...byGroup.keys()].filter((g) => !SLIDER_GROUPS.includes(g))];
+    let lastSection = null;
+    for (const g of order) {
+      const section = document.createElement("section");
+      section.className = "panel";
+      const title = document.createElement("h2");
+      title.className = "panel-title";
+      title.textContent = GROUP_TITLES[g] || g;
+      section.appendChild(title);
+      for (const s of byGroup.get(g)) section.appendChild(this._makeSlider(s));
+      this.shapeSections.appendChild(section);
+      lastSection = section;
+    }
+    if (lastSection) {
+      const tip = document.createElement("p");
+      tip.className = "hint";
+      tip.textContent = "Tip: double-click a slider to reset just that value.";
+      lastSection.appendChild(tip);
     }
   }
 
@@ -263,7 +306,7 @@ export class UI {
       if (el) el.classList.toggle("is-hidden", v);
     };
     hide("style-panel", testing);
-    hide("shape-panel", !!model.bare);
+    hide("shape-sections", !!model.bare);
     hide("profile-panel", !!model.noProfile);
 
     const title = document.getElementById("mount-title");

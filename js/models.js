@@ -1,3 +1,6 @@
+// Copyright 2026 Jayden Collier and Jayke Collier
+// SPDX-License-Identifier: Apache-2.0
+
 import { PLATE_THICKNESS, testerFileName } from "./boreTester.js";
 
 /** The tester is a mode, not a style; several modules need to recognise it. */
@@ -38,8 +41,8 @@ const COMMON_SHAPE = [
 
 // Common stem + bore controls appended to every model.
 const STEM_PARAMS = [
-  { key: "stemDia", label: "Stem diameter", min: 8, max: 26, step: 0.5, group: "shape", unit: "mm", def: 14 },
-  { key: "stemHeight", label: "Stem height", min: 0, max: 35, step: 0.5, group: "shape", unit: "mm", def: 10 },
+  { key: "stemDia", label: "Stem diameter", min: 8, max: 26, step: 0.5, group: "stem", unit: "mm", def: 14 },
+  { key: "stemHeight", label: "Stem height", min: 0, max: 35, step: 0.5, group: "stem", unit: "mm", def: 10 },
 ];
 
 const STEM_HEIGHT = STEM_PARAMS.find((s) => s.key === "stemHeight");
@@ -580,12 +583,12 @@ const MODELS = [
     geometryKind: "goalpost",
     shape2D: goalPostShape,
     schema: [
-      { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "shape", unit: "mm", def: 70 },
-      { key: "baseLength", label: "Base length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 40 },
-      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 30 },
-      { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 5 },
+      { key: "baseWidth", label: "Base width", min: 30, max: 120, step: 1, group: "base", unit: "mm", def: 70 },
+      { key: "baseLength", label: "Base length", min: 10, max: 120, step: 1, group: "base", unit: "mm", def: 40 },
+      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "walls", unit: "mm", def: 30 },
+      { key: "wallCorner", label: "Inside corner curve", min: 0, max: 20, step: 0.5, group: "walls", unit: "mm", def: 5 },
       // Front-to-back length of the walls, capped to the base length.
-      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "shape", unit: "mm", def: 25, fitFn: (p) => p.baseLength },
+      { key: "wallLength", label: "Side-wall length", min: 10, max: 120, step: 1, group: "walls", unit: "mm", def: 25, fitFn: (p) => p.baseLength },
     ],
     // 21 mm is exactly what a 20 mm stem holds; 22 used to be requested and quietly trimmed.
     defaults: { stemDia: 14, stemHeight: 20, boreDepth: 21 },
@@ -606,14 +609,14 @@ const MODELS = [
     geometryKind: "goalpostoval",
     shape2D: gpOvalShape,
     schema: [
-      { key: "baseWidth", label: "Base width", min: 40, max: 130, step: 1, group: "shape", unit: "mm", def: 84 },
-      { key: "baseLength", label: "Base length", min: 20, max: 90, step: 1, group: "shape", unit: "mm", def: 56 },
-      { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 10 },
-      { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "shape", unit: "mm", def: 4 },
-      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "shape", unit: "mm", def: 26 },
-      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "shape", unit: "mm", def: 26, fitFn: (p) => p.baseLength },
-      { key: "tabStick", label: "Tab stick-out", min: 9, max: 45, step: 1, group: "shape", unit: "mm", def: 12 },
-      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "shape", unit: "mm", def: 2, fitFn: (p) => p.wallHeight - 0.5 },
+      { key: "baseWidth", label: "Base width", min: 40, max: 130, step: 1, group: "base", unit: "mm", def: 84 },
+      { key: "baseLength", label: "Base length", min: 20, max: 90, step: 1, group: "base", unit: "mm", def: 56 },
+      { key: "palmRest", label: "Palm Rest", min: 0, max: 20, step: 0.5, group: "base", unit: "mm", def: 10 },
+      { key: "sideBend", label: "Side bend", min: 0, max: 20, step: 0.5, group: "base", unit: "mm", def: 4 },
+      { key: "wallHeight", label: "Side-wall height", min: 0, max: 45, step: 0.5, group: "walls", unit: "mm", def: 26 },
+      { key: "wallLength", label: "Side-wall length", min: 8, max: 90, step: 1, group: "walls", unit: "mm", def: 26, fitFn: (p) => p.baseLength },
+      { key: "tabStick", label: "Side Wall Width", min: 9, max: 45, step: 1, group: "walls", unit: "mm", def: 12 },
+      { key: "wallCorner", label: "Wall inner curve", min: 0, max: 44, step: 0.5, group: "walls", unit: "mm", def: 2, fitFn: (p) => p.wallHeight - 0.5 },
     ],
     defaults: { stemDia: 14, stemHeight: 24, boreDepth: 18 },
     buildOuterProfile(p) {
@@ -631,10 +634,10 @@ const MODELS = [
     geometryKind: "tbar",
     shape2D: tbarShape,
     schema: [
-      { key: "thickness", label: "Handle thickness", min: 12, max: 40, step: 0.5, group: "shape", unit: "mm", def: 22 },
-      { key: "length", label: "Handle length", min: 40, max: 130, step: 1, group: "shape", unit: "mm", def: 82 },
-      { key: "endDroop", label: "End droop", min: 0, max: 25, step: 0.5, group: "shape", unit: "mm", def: 5 },
-      { key: "endTaper", label: "End taper", min: 0, max: 1, step: 0.05, group: "shape", unit: "x", def: 0.4 },
+      { key: "thickness", label: "Handle thickness", min: 12, max: 40, step: 0.5, group: "handle", unit: "mm", def: 22 },
+      { key: "length", label: "Handle length", min: 40, max: 130, step: 1, group: "handle", unit: "mm", def: 82 },
+      { key: "endDroop", label: "End droop", min: 0, max: 25, step: 0.5, group: "handle", unit: "mm", def: 5 },
+      { key: "endTaper", label: "End taper", min: 0, max: 1, step: 0.05, group: "handle", unit: "x", def: 0.4 },
     ],
     defaults: { stemDia: 14, stemHeight: 18, boreDepth: 18 },
     buildOuterProfile(p) {
