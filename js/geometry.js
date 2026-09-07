@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as THREE from "three";
-import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling, boreRadius } from "./models.js";
+import { goalPostShape, gpTopHeight, gpHalfWidthAt, gpOvalShape, gpOvalHalfWidth, gpOvalMid, tbarShape, tbarCenterY, tbarScale, boreCeiling, boreRadius, screwCeiling, screwFloor } from "./models.js";
 import { testerPlate } from "./boreTester.js";
+import { Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 
 const RADIAL_SEGMENTS = 96;
 const STEP_SEGMENTS = 64; // coarser facets keep STEP file size reasonable
@@ -581,11 +582,63 @@ function buildBoreTester(params, opts = {}) {
  * so LatheGeometry yields a watertight, manifold solid — no CSG.
  * Non-revolution models (e.g. Goal Posts, T-Bar) branch to their own builder.
  */
+
+// ---- set screw hole ------------------------------------------------------------
+// A radial hole is the one feature here that is NOT a solid of revolution, so it cannot be
+// folded into the 2D profile the way the mounting bore is. It is cut with a boolean instead
+// (three-bvh-csg): build a cylinder lying on the +X axis and subtract it.
+//
+// The cutter starts ON the centre axis and runs outward past the surface, which gives the
+// hole its two defining properties for free: it always breaks through the outside, and it
+// can never punch out the far side. Where a bore exists the cutter crosses it, so the hole
+// opens into the bore and a screw can reach the controller stem — the whole point of it.
+const SCREW_SEGMENTS = 32;
+const csgEvaluator = new Evaluator();
+csgEvaluator.attributes = ["position", "normal"];
+
+/** Strip everything the evaluator is not carrying, so both brushes agree on attributes. */
+function csgBrush(geometry) {
+  const g = geometry.clone();
+  for (const name of Object.keys(g.attributes)) {
+    if (name !== "position" && name !== "normal") g.deleteAttribute(name);
+  }
+  if (!g.attributes.normal) g.computeVertexNormals();
+  const brush = new Brush(g);
+  brush.updateMatrixWorld();
+  return brush;
+}
+
+function cutScrewHole(geometry, model, params) {
+  if (!params.screwOn) return geometry;
+  const ceiling = screwCeiling(model, params);
+  if (ceiling == null) return geometry; // nothing fits: leave the part alone
+  const r = Math.max(params.screwDia / 2, 0.5);
+  const y = Math.min(Math.max(params.screwHeight, screwFloor(params)), ceiling);
+
+  // Long enough to clear whatever surface it exits through, measured from the axis.
+  geometry.computeBoundingBox();
+  const bb = geometry.boundingBox;
+  const reach = Math.max(Math.abs(bb.max.x), Math.abs(bb.min.x), Math.abs(bb.max.z), Math.abs(bb.min.z)) + 2;
+
+  const cutter = new THREE.CylinderGeometry(r, r, reach, SCREW_SEGMENTS);
+  cutter.rotateZ(Math.PI / 2);   // lay the axis along X
+  cutter.translate(reach / 2, y, 0); // blind end on the axis, open end out past the surface
+
+  const base = csgBrush(geometry);
+  const tool = csgBrush(cutter);
+  const out = csgEvaluator.evaluate(base, tool, SUBTRACTION).geometry;
+  geometry.dispose();
+  cutter.dispose();
+  out.computeVertexNormals();
+  out.computeBoundingBox();
+  return out;
+}
+
 export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
-  if (model.geometryKind === "goalpost") return buildGoalPost(params, opts);
-  if (model.geometryKind === "goalpostoval") return buildGoalPostOval(params, opts);
-  if (model.geometryKind === "tbar") return buildTBar(params, opts);
-  if (model.geometryKind === "boretester") return buildBoreTester(params, opts);
+  if (model.geometryKind === "boretester") return buildBoreTester(params, opts); // a flat plate: no stem to screw into
+  if (model.geometryKind === "goalpost") return cutScrewHole(buildGoalPost(params, opts), model, params);
+  if (model.geometryKind === "goalpostoval") return cutScrewHole(buildGoalPostOval(params, opts), model, params);
+  if (model.geometryKind === "tbar") return cutScrewHole(buildTBar(params, opts), model, params);
   const segments = opts.segments || RADIAL_SEGMENTS;
   // The profile ends on the bed, so hold the foot straight (see roundCorners).
   const rounded = roundCorners(profilePoints, params.edgeRound || 0, BED_STRAIGHT);
@@ -628,7 +681,7 @@ export function buildKnobGeometry(model, params, profilePoints, opts = {}) {
 
   ensureOutwardWinding(geometry);
   geometry.computeBoundingBox();
-  return geometry;
+  return cutScrewHole(geometry, model, params);
 }
 
 /** Build a ready-to-display mesh for the current model/params/profile. */

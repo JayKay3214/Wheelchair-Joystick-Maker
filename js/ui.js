@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { MODELS, fullSchema } from "./models.js";
-import { reachFor, snapDownToStep } from "./schema.js";
+import { floorFor, reachFor, snapDownToStep, snapUpToStep } from "./schema.js";
 import { MM_PER_IN } from "./units.js";
 import { SIZE_COUNT, SIZE_STEP, sizeLabel } from "./boreTester.js";
 
@@ -50,9 +50,9 @@ function parseToStored(schema, raw, unit) {
 }
 
 /** Snap to the slider step and clamp to [min, max] (all in internal units). */
-function snapClamp(schema, value, max) {
+function snapClamp(schema, value, max, min = schema.min) {
   const stepped = Math.round((value - schema.min) / schema.step) * schema.step + schema.min;
-  const clamped = Math.min(Math.max(stepped, schema.min), max);
+  const clamped = Math.min(Math.max(stepped, min), max);
   // Kill floating-point crud from the step arithmetic.
   return parseFloat(clamped.toFixed(6));
 }
@@ -141,13 +141,14 @@ export class UI {
     // Bucket the schema by group, preserving each group's declared slider order.
     const byGroup = new Map();
     for (const s of fullSchema(this.store.model)) {
+      if (s.showIf && !s.showIf(this.store.params, this.store.model)) continue;
       const g = s.group || "shape";
       if (!byGroup.has(g)) byGroup.set(g, []);
       byGroup.get(g).push(s);
     }
 
     // The mounting hole keeps its own hand-written panel (it owns the fit-tester button).
-    for (const s of byGroup.get("mount") || []) this.mountControls.appendChild(this._makeSlider(s));
+    for (const s of byGroup.get("mount") || []) this.mountControls.appendChild(this._makeControl(s));
     byGroup.delete("mount");
 
     // Shape-ish groups in a fixed order, then anything unrecognised so a new group can never
@@ -161,7 +162,7 @@ export class UI {
       title.className = "panel-title";
       title.textContent = GROUP_TITLES[g] || g;
       section.appendChild(title);
-      for (const s of byGroup.get(g)) section.appendChild(this._makeSlider(s));
+      for (const s of byGroup.get(g)) section.appendChild(this._makeControl(s));
       this.shapeSections.appendChild(section);
       lastSection = section;
     }
@@ -171,6 +172,41 @@ export class UI {
       tip.textContent = "Tip: double-click a slider to reset just that value.";
       lastSection.appendChild(tip);
     }
+  }
+
+  /** A schema entry becomes either a slider or, for `type: "toggle"`, a switch. */
+  _makeControl(schema) {
+    return schema.type === "toggle" ? this._makeToggle(schema) : this._makeSlider(schema);
+  }
+
+  _makeToggle(schema) {
+    const wrap = document.createElement("div");
+    wrap.className = "control control-toggle";
+
+    const label = document.createElement("label");
+    label.className = "toggle-row";
+    const text = document.createElement("span");
+    text.className = "control-label";
+    text.textContent = schema.label;
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "toggle-input";
+    input.checked = !!this.store.params[schema.key];
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    track.setAttribute("aria-hidden", "true");
+
+    // Flipping it reveals or hides the controls that only matter while it is on, so the
+    // section has to be rebuilt rather than just re-synced.
+    input.addEventListener("change", () => {
+      this.store.setParam(schema.key, input.checked ? 1 : 0);
+      this._buildControls();
+    });
+
+    label.append(text, input, track);
+    wrap.appendChild(label);
+    return wrap;
   }
 
   _makeSlider(schema) {
@@ -198,7 +234,7 @@ export class UI {
 
     const input = document.createElement("input");
     input.type = "range";
-    input.min = schema.min;
+    input.min = this._dynamicMin(schema);
     input.max = this._dynamicMax(schema);
     input.step = schema.step;
     input.value = this.store.params[schema.key];
@@ -223,7 +259,7 @@ export class UI {
         this._syncOne(schema.key, true); // revert junk input to the current value
         return;
       }
-      this.store.setParam(schema.key, snapClamp(schema, stored, this._dynamicMax(schema)));
+      this.store.setParam(schema.key, snapClamp(schema, stored, this._dynamicMax(schema), this._dynamicMin(schema)));
       // Read back what the store SETTLED on rather than echoing what we sent. It may have
       // moved: a hole depth below the shallowest cuttable one normalises to 0, and a shape
       // may not have room for what was asked. Echoing the request left the number field
@@ -253,15 +289,24 @@ export class UI {
     const { input, num, unit, schema } = entry;
     const max = this._dynamicMax(schema);
     if (parseFloat(input.max) !== max) input.max = max;
+    const min = this._dynamicMin(schema);
+    if (parseFloat(input.min) !== min) input.min = min;
     const v = this.store.params[key];
     if (parseFloat(input.value) !== v) input.value = v;
     // Give the number field the same bounds/step so its native spinner obeys them.
     const inUnit = isLength(schema) && this.store.unit === "in";
-    num.min = inUnit ? (schema.min / MM_PER_IN).toFixed(3) : schema.min;
+    num.min = inUnit ? (min / MM_PER_IN).toFixed(3) : min;
     num.max = inUnit ? (max / MM_PER_IN).toFixed(3) : max;
     num.step = inUnit ? 0.001 : schema.step;
     if (force || document.activeElement !== num) num.value = displayNumber(schema, v, this.store.unit);
     unit.textContent = unitSuffix(schema, this.store.unit);
+  }
+
+  // ...and a few have a dynamic FLOOR too (the set screw cannot sit lower than its own
+  // radius without breaking through the underside), snapped up onto the step grid so the
+  // handle can actually land on it.
+  _dynamicMin(schema) {
+    return snapUpToStep(schema, floorFor(schema, this.store.params, this.store.model));
   }
 
   // Some sliders have a dynamic ceiling that depends on other params (e.g. edge rounding

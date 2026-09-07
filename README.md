@@ -9,8 +9,14 @@ as **STL**, **OBJ** and **STEP** files for 3D printing and CAD. Inspired by
 
 The round handle shapes are generated with the **revolution (lathe) technique** — a 2D outline is
 spun around the centre axis. The mounting hole is built directly into that outline, so every export
-is a **watertight, manifold solid** with no boolean/CSG step. The non-symmetric styles (Goal Posts,
+is a **watertight, manifold solid** with no boolean step. The non-symmetric styles (Goal Posts,
 T-Bar) are built as single hand-assembled solids instead, held to the same watertight standard.
+
+The one exception is the optional **set screw hole** below: a sideways hole is not a solid of
+revolution, so it is cut with a boolean (`three-bvh-csg`, loaded from the same CDN). The result is
+still geometrically closed — verified by ray casting, and it slices and prints normally — but the
+cut leaves T-junctions, so it does not meet the strict "every edge shared by exactly two triangles"
+standard the rest of the app holds to. Leave the screw hole off and nothing changes.
 
 ## Handle styles
 
@@ -32,8 +38,8 @@ slider that fillets the outer edges — the bowl lip, the frustum edges, or the 
 stem/head shoulder. It never affects the mounting bore, and it leaves the foot where the part meets
 the bed square. Smooth styles (Ball, Mushroom) hide the slider since they have no sharp edges.
 
-> **Coming later:** extra bore types (D-shape / hex / set-screw). The model registry (`js/models.js`)
-> and bore generator are built so these drop in as new entries without restructuring.
+> **Coming later:** extra bore profiles (D-shape / hex). The model registry (`js/models.js`) and
+> bore generator are built so these drop in as new entries without restructuring.
 
 ## Mounting hole (controller fit)
 
@@ -51,6 +57,24 @@ whichever unit is on screen.
 Setting **Hole depth** to 0 gives a solid handle with no mounting hole. A shape with no room for a
 bore — a Goal Post with the stem wound right down, say — reports 0 as well, rather than claiming a
 depth it hasn't got.
+
+### Set screw hole
+
+Optional, off by default: a sideways hole through the wall of the stem so a grub screw can clamp the
+handle onto the controller stem and stop it pulling off.
+
+- **Screw hole diameter** — size the hole for your screw. For a self-tapping screw into plastic,
+  drill it a little under the screw's outside diameter.
+- **Screw hole height** — how far up the stem the hole's centre sits, measured from the print bed.
+
+The hole runs from the outside surface in to the centre axis. That is deliberately deep enough to
+break into the mounting bore — a screw that stops inside the wall grips nothing — and it can never
+punch out the far side. Both sliders know their own limits: the height cannot drop so low the hole
+breaks out of the underside, nor rise above the bore, and both bounds move as you change the
+diameter. On a shape with no room for one, the hole is simply not cut.
+
+Because the hole is horizontal when printed, its top is a short unsupported overhang. At the usual
+3-4 mm it bridges fine; if you go much bigger, expect a little sag at the top of the hole.
 
 ### Bore fit tester
 
@@ -123,11 +147,11 @@ js/
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
   models.js       handle-style registry (shape generators + slider schemas)
-  schema.js       slider rules: reach/fit/grow hooks and how a value is normalised
+  schema.js       slider rules: reach/fit/floor/grow hooks and how a value is normalised
   boreTester.js   the fit tester's sizes, plate layout and 7-segment digits (all 2D)
   units.js        mm <-> inch conversion
   geometry.js     closed cross-section + bore -> LatheGeometry, plus the swept solids
-                  (Goal Posts, T-Bar) and the shared bored stem
+                  (Goal Posts, T-Bar), the shared bored stem, and the CSG set screw cut
   profileEditor.js draggable 2D profile canvas
   ui.js           slider sections + numeric entry, model picker, unit toggle
   exporter.js     STL (binary), OBJ and STEP export, rotated Z-up for printing
@@ -190,6 +214,7 @@ must:
 
 ## Attribution
 
-Built with [Three.js](https://threejs.org/) (MIT). Design and interaction inspired by the GPL-3.0
+Built with [Three.js](https://threejs.org/) (MIT) and
+[three-bvh-csg](https://github.com/gkjohnson/three-bvh-csg) (MIT, for the set screw cut). Design and interaction inspired by the GPL-3.0
 [Vasecreator](https://github.com/gewoonkees132/Vasecreator) project — this project is an independent
 implementation and contains no Vasecreator source.

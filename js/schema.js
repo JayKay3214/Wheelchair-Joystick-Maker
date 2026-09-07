@@ -33,7 +33,17 @@
 /** The ceiling in force right now: the declared max, narrowed by fitFn if there is one. */
 export function ceilingFor(schema, params, model) {
   const raw = schema.fitFn ? schema.fitFn(params, model) : schema.max;
-  return Math.max(schema.min, Math.min(schema.max, raw));
+  return Math.max(floorFor(schema, params, model), Math.min(schema.max, raw));
+}
+
+/**
+ * The FLOOR in force right now: the declared min, raised by floorFn if there is one. The
+ * mirror of ceilingFor, for a control whose bottom end also depends on other params — the
+ * set screw's height cannot go below its own radius without breaking out of the underside.
+ */
+export function floorFor(schema, params, model) {
+  const raw = schema.floorFn ? schema.floorFn(params, model) : schema.min;
+  return Math.min(schema.max, Math.max(schema.min, raw));
 }
 
 /** How far the control may be dragged: reachFn if declared, else the current ceiling. */

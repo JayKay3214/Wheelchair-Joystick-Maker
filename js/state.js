@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getModel, defaultParams, fullSchema, BORE_TESTER_ID, DEFAULT_MODEL_ID } from "./models.js";
-import { ceilingFor, snapDownToStep, snapUpToStep, clampToSchema } from "./schema.js";
+import { ceilingFor, floorFor, snapDownToStep, snapUpToStep, clampToSchema } from "./schema.js";
 
 /**
  * Single source of truth for the app.
@@ -125,6 +125,8 @@ export class Store {
       if (v == null) continue;
       const ceiling = ceilingFor(s, this.params, m);
       if (v > ceiling) v = snapDownToStep(s, ceiling);
+      const floor = floorFor(s, this.params, m);
+      if (v < floor) v = Math.min(snapUpToStep(s, floor), ceiling);
       this.params[s.key] = s.normalise ? s.normalise(v) : v;
     }
   }

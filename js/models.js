@@ -86,6 +86,55 @@ const BORE_PARAMS = [
 
 const BORE_DIA = BORE_PARAMS.find((s) => s.key === "boreDia");
 
+// ---- set screw (side hole in the stem) -----------------------------------------
+// A cylindrical hole burrowed into the SIDE of the stem, so an external grub screw can
+// clamp the handle onto the controller stem and stop it pulling off. It runs from the
+// outside surface in to the centre axis: deep enough to open into the mounting bore
+// (which is what lets the screw actually touch the stem it grips), never far enough to
+// break out the far side.
+const SCREW_MARGIN = 1;    // material left below the hole and above it, mm
+const SCREW_MIN_RADIUS = 0.5;
+
+/**
+ * Highest the screw hole's centre can sit — or NULL when nothing fits.
+ *
+ * The hole has to stay inside the solid it is cutting AND inside the bore's height, since
+ * a screw above the bore ceiling would press on solid plastic instead of the controller
+ * stem. Returns null (rather than a number the shape cannot honour) on the same principle
+ * as boreCeiling: no room means no hole.
+ */
+export function screwCeiling(model, params) {
+  const r = Math.max((params.screwDia || 0) / 2, SCREW_MIN_RADIUS);
+  const topY = boreTopY(model, params);
+  const bore = boreCeiling(params.boreDepth, topY);
+  // No bore to break into: fall back to the solid stem, so the hole is at least buildable.
+  const upper = bore != null ? bore : Math.max(params.stemHeight, 0);
+  const ceiling = upper - r - SCREW_MARGIN;
+  return ceiling >= screwFloor(params) ? ceiling : null;
+}
+
+/** Lowest the centre can sit and still leave material under the hole. */
+export function screwFloor(params) {
+  return Math.max((params.screwDia || 0) / 2, SCREW_MIN_RADIUS) + SCREW_MARGIN;
+}
+
+/** Is a set screw hole switched on AND does it fit? */
+export function screwHoleFits(model, params) {
+  return !!params.screwOn && screwCeiling(model, params) != null;
+}
+
+const SCREW_PARAMS = [
+  { key: "screwOn", label: "Set screw hole", type: "toggle", min: 0, max: 1, step: 1, group: "mount", def: 0 },
+  { key: "screwDia", label: "Screw hole diameter", min: 1, max: 8, step: 0.1, group: "mount", unit: "mm", def: 3,
+    showIf: (p) => !!p.screwOn },
+  // Height of the hole's CENTRE above the bed. fitFn keeps it inside the bore and the solid;
+  // when nothing fits the ceiling collapses to the floor and the hole is simply not cut.
+  { key: "screwHeight", label: "Screw hole height", min: 1, max: 45, step: 0.5, group: "mount", unit: "mm", def: 8,
+    showIf: (p) => !!p.screwOn,
+    floorFn: (p) => screwFloor(p),
+    fitFn: (p, m) => screwCeiling(m, p) ?? screwFloor(p) },
+];
+
 // The bore has to stop short of the top of the solid it sits in, or it would blow out
 // through the crown. geometry.js enforces this margin; the two helpers below let the UI
 // see the same limit instead of letting a slider promise depth that never gets built.
@@ -692,7 +741,7 @@ export function defaultParams(model) {
 export function fullSchema(model) {
   if (model.bare) return model.schema;
   const rounding = model.edgeRoundMax ? COMMON_SHAPE : [];
-  return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS];
+  return [...model.schema, ...rounding, ...STEM_PARAMS, ...BORE_PARAMS, ...SCREW_PARAMS];
 }
 
 export function getModel(id) {
