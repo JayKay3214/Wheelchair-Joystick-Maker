@@ -387,6 +387,14 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ---------- Toggle (checkbox styled as a switch) ---------- */
+/* Sitting in a section header, the switch is the only thing on its row. */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex: none;
+}
+
 .control-toggle {
   margin-bottom: 14px;
 }

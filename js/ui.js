@@ -15,6 +15,7 @@ const GROUP_TITLES = {
   handle: "Handle",
   walls: "Side Walls",
   stem: "Stem",
+  screw: "Set screw hole",
 };
 
 /** Is this a length param (stored in mm, convertible to inches)? */
@@ -80,6 +81,7 @@ export class UI {
     this.store = store;
     this.modelPicker = document.getElementById("model-picker");
     this.shapeSections = document.getElementById("shape-sections");
+    this.screwSection = document.getElementById("screw-section");
     this.mountControls = document.getElementById("mount-controls");
     this.sizeReadout = document.getElementById("size-readout");
     this.mountHint = document.getElementById("mount-hint");
@@ -137,6 +139,7 @@ export class UI {
     this.sliderEls.clear();
     this.shapeSections.innerHTML = "";
     this.mountControls.innerHTML = "";
+    if (this.screwSection) this.screwSection.innerHTML = "";
 
     // Bucket the schema by group, preserving each group's declared slider order.
     const byGroup = new Map();
@@ -151,18 +154,19 @@ export class UI {
     for (const s of byGroup.get("mount") || []) this.mountControls.appendChild(this._makeControl(s));
     byGroup.delete("mount");
 
+    // The set screw sits below the mounting hole rather than above it, so it gets its own
+    // container in the markup instead of riding along with the shape sections.
+    if (this.screwSection && byGroup.has("screw")) {
+      this.screwSection.appendChild(this._makeSection("screw", byGroup.get("screw")));
+      byGroup.delete("screw");
+    }
+
     // Shape-ish groups in a fixed order, then anything unrecognised so a new group can never
     // silently vanish from the UI.
     const order = [...SLIDER_GROUPS.filter((g) => byGroup.has(g)), ...[...byGroup.keys()].filter((g) => !SLIDER_GROUPS.includes(g))];
     let lastSection = null;
     for (const g of order) {
-      const section = document.createElement("section");
-      section.className = "panel";
-      const title = document.createElement("h2");
-      title.className = "panel-title";
-      title.textContent = GROUP_TITLES[g] || g;
-      section.appendChild(title);
-      for (const s of byGroup.get(g)) section.appendChild(this._makeControl(s));
+      const section = this._makeSection(g, byGroup.get(g));
       this.shapeSections.appendChild(section);
       lastSection = section;
     }
@@ -174,9 +178,56 @@ export class UI {
     }
   }
 
+  /**
+   * One panel for a slider group. A `type: "toggle"` entry in the group is promoted into the
+   * section header — the switch reads as part of the heading ("SET SCREW HOLE [ ]") rather
+   * than as one more control in the list, and the sliders it governs sit under it.
+   */
+  _makeSection(group, entries) {
+    const section = document.createElement("section");
+    section.className = "panel";
+    const toggle = entries.find((e) => e.type === "toggle");
+    const title = document.createElement("h2");
+    title.className = "panel-title";
+    title.textContent = GROUP_TITLES[group] || group;
+    if (toggle) {
+      const row = document.createElement("div");
+      row.className = "panel-title-row";
+      row.append(title, this._makeToggleSwitch(toggle));
+      section.appendChild(row);
+    } else {
+      section.appendChild(title);
+    }
+    for (const e of entries) {
+      if (e === toggle) continue;
+      section.appendChild(this._makeControl(e));
+    }
+    return section;
+  }
+
   /** A schema entry becomes either a slider or, for `type: "toggle"`, a switch. */
   _makeControl(schema) {
     return schema.type === "toggle" ? this._makeToggle(schema) : this._makeSlider(schema);
+  }
+
+  /** Just the switch, for use in a section header where the heading is already the label. */
+  _makeToggleSwitch(schema) {
+    const label = document.createElement("label");
+    label.className = "toggle-switch";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "toggle-input";
+    input.checked = !!this.store.params[schema.key];
+    input.setAttribute("aria-label", schema.label);
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    track.setAttribute("aria-hidden", "true");
+    input.addEventListener("change", () => {
+      this.store.setParam(schema.key, input.checked ? 1 : 0);
+      this._buildControls(); // reveals/hides the sliders this switch governs
+    });
+    label.append(input, track);
+    return label;
   }
 
   _makeToggle(schema) {

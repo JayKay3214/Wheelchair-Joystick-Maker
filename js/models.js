@@ -124,12 +124,12 @@ export function screwHoleFits(model, params) {
 }
 
 const SCREW_PARAMS = [
-  { key: "screwOn", label: "Set screw hole", type: "toggle", min: 0, max: 1, step: 1, group: "mount", def: 0 },
-  { key: "screwDia", label: "Screw hole diameter", min: 1, max: 8, step: 0.1, group: "mount", unit: "mm", def: 3,
+  { key: "screwOn", label: "Set screw hole", type: "toggle", min: 0, max: 1, step: 1, group: "screw", def: 0 },
+  { key: "screwDia", label: "Screw hole diameter", min: 1, max: 8, step: 0.1, group: "screw", unit: "mm", def: 3,
     showIf: (p) => !!p.screwOn },
   // Height of the hole's CENTRE above the bed. fitFn keeps it inside the bore and the solid;
   // when nothing fits the ceiling collapses to the floor and the hole is simply not cut.
-  { key: "screwHeight", label: "Screw hole height", min: 1, max: 45, step: 0.5, group: "mount", unit: "mm", def: 8,
+  { key: "screwHeight", label: "Screw hole height", min: 1, max: 45, step: 0.5, group: "screw", unit: "mm", def: 8,
     showIf: (p) => !!p.screwOn,
     floorFn: (p) => screwFloor(p),
     fitFn: (p, m) => screwCeiling(m, p) ?? screwFloor(p) },
