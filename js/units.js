@@ -1,5 +1,5 @@
 // Copyright 2026 Jayden Collier and Jayke Collier
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 /**
  * Display units. Everything in the app is stored and exported in millimetres — the

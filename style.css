@@ -513,6 +513,21 @@ input[type="range"]::-moz-range-thumb {
   flex: none;
 }
 
+/* The safety notice opens the legal block: quiet enough not to shout over the credits,
+   a step brighter than the fine print below it because it is the part worth reading. */
+.credits-disclaimer {
+  margin: 0 0 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.credits-disclaimer strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .credits-legal {
   margin: 0 0 16px;
   padding-top: 14px;

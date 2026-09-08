@@ -204,13 +204,14 @@ In the app, these are behind the **ⓘ** button beside the title.
 ## License
 
 Copyright 2026 Jayden Collier and Jayke Collier. Licensed under the
-**[Apache License 2.0](LICENSE)**.
+**[MIT License](LICENSE)**.
 
-You are free to use, modify and distribute this software, including commercially. In return you
-must:
+You are free to use, modify and distribute this software, including commercially. The only
+condition is that you keep the copyright notice and the `LICENSE` text in any copy you distribute.
 
-- keep the copyright notice, the `LICENSE`, and the `NOTICE` file in any copy you distribute, and
-- **state that you changed the files** if you distribute a modified version.
+**No warranty.** This tool and the parts it produces come with no warranty of any kind. Check that
+anything you print fits your equipment, is strong enough for its purpose, and is safe to use, and
+test it before you rely on it.
 
 ## Attribution
 
