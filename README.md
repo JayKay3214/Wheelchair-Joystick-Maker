@@ -154,7 +154,7 @@ js/
                   (Goal Posts, T-Bar), the shared bored stem, and the CSG set screw cut
   profileEditor.js draggable 2D profile canvas
   ui.js           slider sections + numeric entry, model picker, unit toggle
-  exporter.js     STL (binary), OBJ and STEP export, rotated Z-up for printing
+  exporter.js     STL (binary), OBJ and STEP (faceted, experimental) export, rotated Z-up
 ```
 
 ### Editing the shape
@@ -183,7 +183,7 @@ js/
 |--------|------------|
 | **STL** (binary) | Printing. The standard slicer format. |
 | **OBJ** | Printing / general 3D interchange. |
-| **STEP** | CAD. Imports as a solid in FreeCAD, Fusion, SolidWorks etc. if you want to modify the part further. |
+| **STEP** | **Highly experimental.** CAD. Imports as a solid in FreeCAD, Fusion, SolidWorks etc., with the caveats below. |
 
 All three are millimetres at 1:1 and are rotated Z-up (bore facing down) on the way out.
 
@@ -192,6 +192,23 @@ certified medical device, it comes with no warranty, and checking that the part 
 strong enough is on you. It appears once, not on every export — a dialog you meet every time is
 a dialog you stop reading. Afterwards the same text stays under the export buttons behind
 **Printing guidance**.
+
+### STEP is highly experimental
+
+Three.js has no STEP exporter, so this one writes the mesh as a faceted `manifold_solid_brep`:
+vertices welded, edges shared, and **one flat face per triangle**. It opens as a solid, but it is
+tessellated, not analytic, and that has consequences worth knowing before you build on it:
+
+- Curved surfaces arrive as **polygons**, not real surfaces. What was a smooth lathe profile comes
+  in as a few hundred flat facets.
+- Files are **large** for what they contain, and get larger as you raise the segment count.
+- Operations that expect real surfaces — **fillets, offsets, draft, shelling** — will struggle or
+  fail outright on a faceted body.
+- If welding leaves free edges, the writer **falls back to an open shell**. Some CAD packages will
+  refuse to treat that as a solid.
+
+Treat it as a way to get the shape into CAD to measure or reference, not as a clean parametric
+starting point. **Print from STL or OBJ.**
 
 ## Printing tips
 

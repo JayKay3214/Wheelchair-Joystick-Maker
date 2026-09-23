@@ -88,8 +88,15 @@
         <div class="export-buttons">
           <button type="button" id="export-stl" class="btn btn-primary">Download STL</button>
           <button type="button" id="export-obj" class="btn btn-secondary">Download OBJ</button>
-          <button type="button" id="export-step" class="btn btn-secondary export-wide">Download STEP</button>
+          <button type="button" id="export-step" class="btn btn-secondary export-wide">Download STEP (experimental)</button>
         </div>
+        <p class="export-experimental">
+          <strong>STEP is highly experimental.</strong> It writes a faceted solid — every triangle
+          becomes its own flat face — so curves arrive as polygons, files get large, and CAD
+          operations that expect real surfaces (fillets, offsets, draft) will struggle. If welding
+          leaves free edges it falls back to an open shell, which some CAD packages refuse to treat
+          as a solid. Print from <strong>STL</strong> or <strong>OBJ</strong>.
+        </p>
         <p class="hint" id="size-readout">&nbsp;</p>
         <p class="export-note">
           No warranty. Check the part fits and is strong enough before you rely on it.
