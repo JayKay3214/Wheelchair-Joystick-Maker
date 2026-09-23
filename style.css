@@ -603,6 +603,24 @@ input[type="range"]::-moz-range-thumb {
 .print-actions .btn { flex: 1; }
 .print-dialog .btn { width: auto; }
 
+/* STEP ships faceted, not analytic. Amber rather than red: it is a limitation to read before
+   you rely on the file, not a safety warning like the print gate. */
+.export-experimental {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #d9a441;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+.export-experimental strong {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 /* The standing notice under the export buttons. The modal fires once; this does not go away. */
 .export-note {
   margin: 8px 0 0;
