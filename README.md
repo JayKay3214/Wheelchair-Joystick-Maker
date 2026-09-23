@@ -204,10 +204,27 @@ In the app, these are behind the **ⓘ** button beside the title.
 ## License
 
 Copyright 2026 Jayden Collier and Jayke Collier. Licensed under the
-**[MIT License](LICENSE)**.
+**[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 
-You are free to use, modify and distribute this software, including commercially. The only
-condition is that you keep the copyright notice and the `LICENSE` text in any copy you distribute.
+You are free to use, modify and distribute this software **for any noncommercial purpose**, on the
+condition that you keep the copyright notice and the `LICENSE` text in any copy you distribute. The
+license also grants you a patent license covering the software.
+
+Noncommercial covers personal use — study, hobby projects, private use, research and testing — and
+it explicitly covers **use by charities, schools and universities, public research bodies, public
+safety or health organizations, and government institutions**, whatever their funding. A hospital,
+a clinic run by a health service, or a school may use this tool freely.
+
+Selling the software, or using it as part of a commercial product or service, is **not** permitted
+without a separate license. If you want to use it commercially, open an issue and ask — we would
+rather say yes to a real use than have the tool go unused.
+
+Two things worth being clear about:
+
+- Versions released before this change were published under the MIT License and **stay** MIT. This
+  license applies from this release onwards; it cannot and does not revoke anything already granted.
+- This license is deliberately **not** an OSI-approved open source license, because it restricts a
+  field of endeavour. It is source-available.
 
 **No warranty.** This tool and the parts it produces come with no warranty of any kind. Check that
 anything you print fits your equipment, is strong enough for its purpose, and is safe to use, and

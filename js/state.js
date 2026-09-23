@@ -1,5 +1,5 @@
 // Copyright 2026 Jayden Collier and Jayke Collier
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import { getModel, defaultParams, fullSchema, BORE_TESTER_ID, DEFAULT_MODEL_ID } from "./models.js";
 import { ceilingFor, floorFor, snapDownToStep, snapUpToStep, clampToSchema } from "./schema.js";
