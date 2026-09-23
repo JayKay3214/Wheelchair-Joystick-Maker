@@ -2,17 +2,27 @@ Joystick Maker — Wheelchair Joystick Customizer
 Copyright 2026 Jayden Collier and Jayke Collier
 Source: https://github.com/JayKay3214/Wheelchair-Joystick-Maker
 
-Licensed under the MIT License (see LICENSE).
+Licensed under the PolyForm Noncommercial License 1.0.0 (see LICENSE).
+Noncommercial use only; commercial use requires a separate license.
 
 Created by:
   Jayden Collier — Lead; concept and direction
   Jayke Collier  — Developer; implementation and AI-assisted build
 
 If you redistribute this software, with or without modification, you must
-retain the copyright notice and the LICENSE text in any copy you distribute.
+retain the copyright notice and the LICENSE text in any copy you distribute,
+and your use and your recipients' use must be for a noncommercial purpose.
+
+Use by charitable, educational, public research, public safety or health, and
+government organizations counts as noncommercial under this license.
 
 This software is provided "as is", without warranty of any kind. Anything it
 produces is fitted and used at your own risk.
 
 This product includes software developed by third parties:
   Three.js (https://threejs.org/) — MIT License, loaded from a CDN.
+  three-bvh-csg (https://github.com/gkjohnson/three-bvh-csg) — MIT License,
+    used for the set screw cut.
+
+Their MIT terms permit inclusion here; their own notices are retained above
+and are unaffected by the license covering this project.

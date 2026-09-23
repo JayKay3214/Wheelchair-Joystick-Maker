@@ -1,5 +1,5 @@
 // Copyright 2026 Jayden Collier and Jayke Collier
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 import { boreCeiling, boreRadius } from "./models.js";
 

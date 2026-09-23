@@ -1,5 +1,5 @@
 // Copyright 2026 Jayden Collier and Jayke Collier
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 /**
  * Slider schemas: the shared vocabulary a model uses to describe a control, and the
