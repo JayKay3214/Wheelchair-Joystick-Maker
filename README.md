@@ -143,7 +143,7 @@ other code changes needed.)
 index.html        layout + Three.js import map (CDN, buildless)
 style.css         UI styling
 js/
-  main.js         wires everything together + render loop
+  main.js         wires everything together + render loop, and gates the first download
   scene.js        Three.js scene, camera, lights, OrbitControls, grid
   state.js        single source of truth (model, params, profile, units)
   models.js       handle-style registry (shape generators + slider schemas)
@@ -187,10 +187,26 @@ js/
 
 All three are millimetres at 1:1 and are rotated Z-up (bore facing down) on the way out.
 
+The first download of each session asks you to confirm a short notice first: this is not a
+certified medical device, it comes with no warranty, and checking that the part fits and is
+strong enough is on you. It appears once, not on every export — a dialog you meet every time is
+a dialog you stop reading. Afterwards the same text stays under the export buttons behind
+**Printing guidance**.
+
 ## Printing tips
 
+These are the settings the app shows you before your first download.
+
+- **Walls before infill** — 4 to 6 perimeters. A handle fails in bending and torsion, at the layer
+  lines, and wall count carries both far better than infill does.
+- **Infill at least 50%**, with the stem and bore solid for a press-fit that lasts.
+- **ASA** is the best material outdoors: tough and UV-stable.
+- **ABS** is just as tough, but it wants an enclosure. Without one the layers bond poorly and the
+  handle can end up weaker than PETG.
+- **PETG** is easy and tough, but it softens around 80 °C. Not for a chair that sits in the sun.
+- **Avoid PLA.** It softens around 60 °C and creeps under sustained load, which is exactly what a
+  joystick asks of it.
 - Exports are in **millimetres**, oriented **bore-down** (stem on the bed) so the hole prints cleanly.
-- Print the stem/bore area solid (high infill or extra walls) for a durable press-fit.
 - A small brim helps adhesion for tall styles like the I-Handle and Carrot.
 
 ## Credits

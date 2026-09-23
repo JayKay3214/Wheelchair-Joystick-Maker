@@ -91,6 +91,10 @@
           <button type="button" id="export-step" class="btn btn-secondary export-wide">Download STEP</button>
         </div>
         <p class="hint" id="size-readout">&nbsp;</p>
+        <p class="export-note">
+          No warranty. Check the part fits and is strong enough before you rely on it.
+          <button type="button" id="print-guidance-open" class="linklike">Printing guidance</button>
+        </p>
       </section>
 
       <footer class="sidebar-footer">
@@ -109,6 +113,42 @@
       <div id="loading" class="loading">Loading 3D engine…</div>
     </main>
   </div>
+
+  <!-- Print safety gate. Shown once per session before the first download, and on demand
+       from the export panel afterwards. A modal on *every* export would just train people to
+       dismiss it unread, which costs the warning the only thing it is for. Same native
+       <dialog> as the credits, so Esc, focus trapping and screen readers behave. -->
+  <dialog id="print-dialog" class="credits-dialog print-dialog" aria-labelledby="print-title">
+    <h2 id="print-title">Before you print</h2>
+    <p class="credits-sub">This part ends up on a wheelchair. Worth a minute.</p>
+
+    <p class="print-warning">
+      <strong>No warranty.</strong> This tool and the parts it produces are provided &quot;as is&quot;,
+      and this is <strong>not a certified medical device</strong>. You are responsible for checking that
+      anything you print fits your equipment, is strong enough for its purpose, and is safe to use.
+      Test any part before relying on it.
+    </p>
+
+    <h3 class="print-subhead">Recommended settings</h3>
+    <ul class="print-list">
+      <li><strong>Walls before infill</strong> — 4 to 6 perimeters. Wall count carries bending and
+        twisting far better than infill does.</li>
+      <li><strong>Infill at least 50%</strong>, and print the stem and bore solid for a press-fit
+        that lasts.</li>
+      <li><strong>ASA</strong> — the best choice outdoors: tough and UV-stable.</li>
+      <li><strong>ABS</strong> — just as tough, but it wants an enclosure. Without one the layers
+        bond poorly and the handle can end up weaker than PETG.</li>
+      <li><strong>PETG</strong> — easy and tough, but it softens around 80&nbsp;°C. Not for a chair
+        that sits in the sun.</li>
+      <li><strong>Avoid PLA.</strong> It softens around 60&nbsp;°C and creeps under sustained load,
+        which is exactly what a joystick asks of it.</li>
+    </ul>
+
+    <div class="print-actions">
+      <button type="button" id="print-dismiss" class="btn btn-secondary">Cancel</button>
+      <button type="button" id="print-confirm" class="btn btn-primary" autofocus>I understand — download</button>
+    </div>
+  </dialog>
 
   <!-- Credits. A native <dialog> so Esc and focus trapping come for free. -->
   <dialog id="credits-dialog" class="credits-dialog" aria-labelledby="credits-title">

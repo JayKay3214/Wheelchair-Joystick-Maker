@@ -64,27 +64,70 @@ function fileName() {
   // A model that names its own exports says so; everything else is joystick-<id>.
   return store.model.fileName?.(store.params, store.unit) ?? `joystick-${store.modelId}`;
 }
+
+// The warning gates the first download of each session, then gets out of the way. A modal on
+// every export trains people to click through it unread, which costs both the safety value and
+// any weight it carries as notice. The same text stays one click away from the export panel.
+const printDialog = document.getElementById("print-dialog");
+const printConfirm = document.getElementById("print-confirm");
+const printDismiss = document.getElementById("print-dismiss");
+let printAcknowledged = false;
+let pendingExport = null;
+
+// Gating a download and reading the guidance want the same text but different endings, so the
+// one dismiss button changes its word and the confirm only exists when there is something to
+// confirm. Dismissing is dismissing either way; two buttons for it was one too many.
+function openPrintDialog({ gating }) {
+  printConfirm.hidden = !gating;
+  printDismiss.textContent = gating ? "Cancel" : "Close";
+  printDialog.showModal();
+  if (!gating) printDismiss.focus();
+}
+function withPrintWarning(run) {
+  if (printAcknowledged) { run(); return; }
+  pendingExport = run;
+  openPrintDialog({ gating: true });
+}
+printConfirm.addEventListener("click", () => {
+  printAcknowledged = true;
+  // Read the pending export before close(), which clears it via the close handler below.
+  const run = pendingExport;
+  pendingExport = null;
+  printDialog.close();
+  run?.();
+});
+printDismiss.addEventListener("click", () => printDialog.close());
+// Esc dismisses a native <dialog> without pressing either button, so drop the pending export
+// on any close. Confirm has already taken its copy by then.
+printDialog.addEventListener("close", () => { pendingExport = null; });
+document.getElementById("print-guidance-open").addEventListener("click", () => {
+  openPrintDialog({ gating: false });
+});
+
 document.getElementById("export-stl").addEventListener("click", () => {
-  if (scene.mesh) exportSTL(scene.mesh.geometry, fileName());
+  withPrintWarning(() => { if (scene.mesh) exportSTL(scene.mesh.geometry, fileName()); });
 });
 document.getElementById("export-obj").addEventListener("click", () => {
-  if (scene.mesh) exportOBJ(scene.mesh.geometry, fileName());
+  withPrintWarning(() => { if (scene.mesh) exportOBJ(scene.mesh.geometry, fileName()); });
 });
 document.getElementById("export-step").addEventListener("click", (e) => {
+  // Captured now: currentTarget is null by the time the gate resolves.
   const btn = e.currentTarget;
-  const label = btn.textContent;
-  btn.textContent = "Building…";
-  btn.disabled = true;
-  // Coarser facets keep the STEP file manageable; defer so the label repaints.
-  requestAnimationFrame(() => {
-    try {
-      const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS, unit: store.unit });
-      exportSTEP(geo, fileName());
-      geo.dispose();
-    } finally {
-      btn.textContent = label;
-      btn.disabled = false;
-    }
+  withPrintWarning(() => {
+    const label = btn.textContent;
+    btn.textContent = "Building…";
+    btn.disabled = true;
+    // Coarser facets keep the STEP file manageable; defer so the label repaints.
+    requestAnimationFrame(() => {
+      try {
+        const geo = buildKnobGeometry(store.model, store.params, store.profilePoints, { segments: STEP_SEGMENTS, unit: store.unit });
+        exportSTEP(geo, fileName());
+        geo.dispose();
+      } finally {
+        btn.textContent = label;
+        btn.disabled = false;
+      }
+    });
   });
 });
 
